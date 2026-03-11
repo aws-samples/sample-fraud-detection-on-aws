@@ -1,0 +1,479 @@
+openapi: 3.0.0
+info:
+  title: Auto Insurance Fraud Detection API
+  version: 1.0.0
+  description: Graph-based fraud detection using Amazon Neptune ML
+
+x-amazon-apigateway-request-validators:
+  all:
+    validateRequestBody: true
+    validateRequestParameters: true
+
+security:
+  - CognitoAuthorizer: []
+
+components:
+  securitySchemes:
+    CognitoAuthorizer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate user and get access token
+      operationId: login
+      security: []
+      x-amazon-apigateway-request-validator: all
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${AuthFunctionArn}
+        passthroughBehavior: when_no_match
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+                  idToken:
+                    type: string
+                  refreshToken:
+                    type: string
+                  expiresIn:
+                    type: integer
+        '401':
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      summary: Logout user and invalidate tokens
+      operationId: logout
+      security: []
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${AuthFunctionArn}
+        passthroughBehavior: when_no_match
+      responses:
+        '200':
+          description: Logout successful
+        '401':
+          description: Unauthorized
+
+  /claims:
+    post:
+      summary: Submit new claim with ML fraud detection
+      operationId: submitClaim
+      x-amazon-apigateway-request-validator: all
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+        passthroughBehavior: when_no_match
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claimAmount, claimantId, vehicleId, repairShopId]
+              properties:
+                claimAmount:
+                  type: number
+                  minimum: 0
+                  maximum: 100000
+                claimantId:
+                  type: string
+                vehicleId:
+                  type: string
+                repairShopId:
+                  type: string
+      responses:
+        '200':
+          description: Claim submitted successfully
+        '400':
+          description: Invalid request
+
+  /claims/{claim_id}:
+    get:
+      summary: Get claim details
+      operationId: getClaim
+      parameters:
+        - name: claim_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Claim details
+        '404':
+          description: Claim not found
+
+  /claimants/{claimant_id}/claims:
+    get:
+      summary: Get claimant's claims history
+      operationId: getClaimantClaims
+      parameters:
+        - name: claimant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Claims history
+
+  /claimants/{claimant_id}/risk-score:
+    get:
+      summary: Get claimant risk score (ML-powered)
+      operationId: getClaimantRiskScore
+      parameters:
+        - name: claimant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Risk score
+
+  /claimants/{claimant_id}/claim-velocity:
+    get:
+      summary: Get claimant claim velocity
+      operationId: getClaimantVelocity
+      parameters:
+        - name: claimant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Claim velocity metrics
+
+  /claimants/{claimant_id}/fraud-analysis:
+    get:
+      summary: Get comprehensive fraud analysis for claimant
+      operationId: getClaimantFraudAnalysis
+      parameters:
+        - name: claimant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Fraud analysis
+
+  /repair-shops/{shop_id}/statistics:
+    get:
+      summary: Get repair shop statistics
+      operationId: getRepairShopStats
+      parameters:
+        - name: shop_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Shop statistics
+
+  /repair-shops/fraud-hubs:
+    get:
+      summary: Detect fraud hub repair shops
+      operationId: getFraudHubs
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of fraud hub shops
+
+  /vehicles/{vehicle_id}/fraud-history:
+    get:
+      summary: Get vehicle fraud history (ML-powered)
+      operationId: getVehicleFraudHistory
+      parameters:
+        - name: vehicle_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Vehicle fraud history
+
+  /medical-providers/{provider_id}/fraud-analysis:
+    get:
+      summary: Get medical provider fraud analysis (ML-powered)
+      operationId: getMedicalProviderAnalysis
+      parameters:
+        - name: provider_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Provider fraud analysis
+
+  /fraud-patterns/collision-rings:
+    get:
+      summary: Detect comprehensive collision ring fraud patterns
+      description: |
+        Detects 6 types of collision ring fraud:
+        - Staged accidents (shared vehicles/witnesses/repair shops)
+        - Swoop & squat maneuvers (rear-end collisions)
+        - Stuffed passengers (jump-ins claiming fake injuries)
+        - Paper collisions (unverified police reports)
+        - Corrupt attorneys (steering clients to fraud rings)
+        - Corrupt tow companies (steering victims to fraud shops)
+      operationId: getCollisionRings
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Collision ring patterns detected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalDetected:
+                    type: integer
+                  highSuspicion:
+                    type: integer
+                  mediumSuspicion:
+                    type: integer
+                  patterns:
+                    type: object
+                    properties:
+                      stagedAccidents:
+                        type: integer
+                      swoopAndSquat:
+                        type: integer
+                      stuffedPassengers:
+                        type: integer
+                      paperCollisions:
+                        type: integer
+                      corruptAttorneys:
+                        type: integer
+                      corruptTowCompanies:
+                        type: integer
+                  detectedRings:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: object
+
+  /fraud-patterns/professional-witnesses:
+    get:
+      summary: Detect professional witness fraud
+      operationId: getProfessionalWitnesses
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of professional witnesses
+
+  /fraud-patterns/collusion-indicators:
+    get:
+      summary: Detect collusion indicators
+      operationId: getCollusionIndicators
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Collusion indicators
+
+  /fraud-patterns/cross-claim-patterns:
+    get:
+      summary: Detect cross-claim fraud patterns
+      operationId: getCrossClaimPatterns
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Cross-claim patterns
+
+  /fraud-networks/influential-claimants:
+    get:
+      summary: Find influential claimants in fraud networks
+      operationId: getInfluentialClaimants
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of influential claimants
+
+  /fraud-networks/organized-rings:
+    get:
+      summary: Detect organized fraud rings
+      operationId: getOrganizedRings
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of organized rings
+
+  /fraud-networks/connections:
+    get:
+      summary: Get fraudster connections
+      operationId: getFraudsterConnections
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Fraudster connections
+
+  /fraud-networks/isolated-rings:
+    get:
+      summary: Detect isolated fraud rings
+      operationId: getIsolatedRings
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of isolated rings
+
+  /isolated-rings/{entity_id}:
+    get:
+      summary: Get isolated ring for specific entity
+      operationId: getEntityIsolatedRing
+      parameters:
+        - name: entity_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Entity ID
+        - name: entity_type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Entity type (optional)
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Entity's isolated ring (2-hop neighborhood)
+
+  /analytics/fraud-trends:
+    get:
+      summary: Get fraud trends analytics
+      operationId: getFraudTrends
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Fraud trends data
+
+  /analytics/geographic-hotspots:
+    get:
+      summary: Get geographic fraud hotspots
+      operationId: getGeographicHotspots
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Geographic hotspots
+
+  /analytics/claim-amount-anomalies:
+    get:
+      summary: Detect claim amount anomalies (ML-powered)
+      operationId: getClaimAmountAnomalies
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Claim amount anomalies
+
+  /analytics/temporal-patterns:
+    get:
+      summary: Analyze temporal fraud patterns
+      operationId: getTemporalPatterns
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Temporal patterns

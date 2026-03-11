@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Insurance Fraud Detection</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://d3js.org/d3.v7.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js" integrity="sha384-vdScihEZCfbPnBQf+lc7LgXUdJVYyhC3yWHUW5C5P5GpHRqVnaM6HJELJxT6IqwM" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1 data-i18n="title">Auto Insurance Fraud Detection</h1>
+            <div class="user-info">
+                <select id="languageSelector" class="language-selector">
+                    <option value="en">English</option>
+                    <option value="es">Español</option>
+                    <option value="pt">Português</option>
+                </select>
+                <span id="currentUser"></span>
+                <button id="logoutBtn" class="btn-secondary" data-i18n="logout">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Sidebar Menu -->
+            <aside class="sidebar">
+                <nav class="menu">
+                    <div class="menu-section">
+                        <h3 data-i18n="claims">Claims</h3>
+                        <ul>
+                            <li><a href="#" data-view="claims-submit" data-i18n="submitClaim">Submit Claim</a></li>
+                            <li><a href="#" data-view="claims-detail" data-i18n="claimDetails">Claim Details</a></li>
+                            <li><a href="#" data-view="claimants-claims" data-i18n="claimantClaims">Claimant Claims</a></li>
+                            <li><a href="#" data-view="claimants-risk-score" data-i18n="riskScore">Risk Score</a></li>
+                            <li><a href="#" data-view="claimants-velocity" data-i18n="claimVelocity">Claim Velocity</a></li>
+                            <li><a href="#" data-view="claimants-fraud-analysis" data-i18n="fraudAnalysis">Fraud Analysis</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="menu-section">
+                        <h3 data-i18n="fraudPatterns">Fraud Patterns</h3>
+                        <ul>
+                            <li><a href="#" data-view="collision-rings" data-i18n="collisionRings">Collision Rings</a></li>
+                            <li><a href="#" data-view="professional-witnesses" data-i18n="professionalWitnesses">Professional Witnesses</a></li>
+                            <li><a href="#" data-view="collusion-indicators" data-i18n="collusionIndicators">Collusion Indicators</a></li>
+                            <li><a href="#" data-view="cross-claim-patterns" data-i18n="crossClaimPatterns">Cross-Claim Patterns</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="menu-section">
+                        <h3 data-i18n="fraudNetworks">Fraud Networks</h3>
+                        <ul>
+                            <li><a href="#" data-view="influential-claimants" data-i18n="influentialClaimants">Influential Claimants</a></li>
+                            <li><a href="#" data-view="organized-rings" data-i18n="organizedRings">Organized Rings</a></li>
+                            <li><a href="#" data-view="connections" data-i18n="connections">Connections</a></li>
+                            <li><a href="#" data-view="isolated-rings" data-i18n="isolatedRings">Isolated Rings</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="menu-section">
+                        <h3 data-i18n="analytics">Analytics</h3>
+                        <ul>
+                            <li><a href="#" data-view="fraud-trends" data-i18n="fraudTrends">Fraud Trends</a></li>
+                            <li><a href="#" data-view="geographic-hotspots" data-i18n="geographicHotspots">Geographic Hotspots</a></li>
+                            <li><a href="#" data-view="claim-anomalies" data-i18n="claimAnomalies">Claim Anomalies</a></li>
+                            <li><a href="#" data-view="temporal-patterns" data-i18n="temporalPatterns">Temporal Patterns</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="menu-section">
+                        <h3 data-i18n="entities">Entities</h3>
+                        <ul>
+                            <li><a href="#" data-view="repair-shop-stats" data-i18n="repairShopStats">Repair Shop Stats</a></li>
+                            <li><a href="#" data-view="fraud-hubs" data-i18n="fraudHubs">Fraud Hubs</a></li>
+                            <li><a href="#" data-view="vehicle-fraud-history" data-i18n="vehicleFraudHistory">Vehicle Fraud History</a></li>
+                            <li><a href="#" data-view="medical-provider-fraud" data-i18n="medicalProviderFraud">Medical Provider Fraud</a></li>
+                        </ul>
+                    </div>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="content-area">
+                <div id="viewContainer">
+                    <div class="welcome-message">
+                        <h2 data-i18n="welcome">Welcome to Auto Insurance Fraud Detection</h2>
+                        <p data-i18n="welcomeMsg">Select an option from the menu to begin analyzing fraud patterns.</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/graph.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
