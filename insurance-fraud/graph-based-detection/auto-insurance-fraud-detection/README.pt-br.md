@@ -180,7 +180,7 @@ A maneira mais fácil de implantar é usando o script fornecido:
 **O que o script faz:**
 1. Implanta o stack do CloudFormation (~15-20 minutos)
 2. Implanta todo o código das funções Lambda (~1 minuto)
-3. Popula o Neptune com 200 sinistros de amostra (~5 segundos)
+3. Popula o Neptune com 2.000 sinistros de amostra (~3 minutos)
 4. **Inicia o pipeline de treinamento ML** (~1-2 horas em segundo plano)
 5. Fornece o endpoint da API e resumo da implantação
 
@@ -339,14 +339,15 @@ Veja [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para documentação detalhada 
 ### Vértices
 - **Claimant** - Titulares de apólices de seguros
 - **Vehicle** - Veículos segurados (vin, make, year, plate, ownerId)
-- **Claim** - Sinistros de seguros (com fraudScore)
+- **Claim** - Sinistros de seguros
 - **Accident** - Eventos de acidentes (com accidentType, maneuverType, policeVerified)
-- **RepairShop** - Instalações de reparação de autos (com fraudScore)
-- **MedicalProvider** - Provedores de assistência médica (com fraudScore)
-- **Witness** - Testemunhas de acidentes (com fraudScore)
-- **Attorney** - Representantes legais (com fraudScore)
-- **TowCompany** - Operadores de reboques (com fraudScore)
-- **Passenger** - Passageiros de acidentes (com fraudScore)
+- **RepairShop** - Instalações de reparação de autos
+- **MedicalProvider** - Provedores de assistência médica
+- **Witness** - Testemunhas de acidentes
+- **Attorney** - Representantes legais
+- **TowCompany** - Operadores de reboques
+- **Passenger** - Passageiros de acidentes
+- **fraudEntity** - Nó alvo de ML vinculado às entidades suspeitas (RepairShop, MedicalProvider, Witness, Attorney, TowCompany, Claim, Passenger) via aresta `has_fraud_score`; armazena a propriedade `fraudScore` utilizada para treinar o modelo de regressão do Neptune ML
 
 ### Arestas
 - **owns** - Segurado possui Veículo
@@ -360,6 +361,7 @@ Veja [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para documentação detalhada 
 - **towed_by** - Veículo rebocado por Empresa de Reboque
 - **passenger_in** - Passageiro no Acidente
 - **claimed_injury** - Passageiro reivindicou lesão no Sinistro
+- **has_fraud_score** - Entidade de domínio vinculada ao seu nó alvo fraudEntity de ML
 
 ## Uso da API
 

@@ -178,7 +178,7 @@ To deploy using the provided script:
 **What the script does:**
 1. Deploys CloudFormation stack (~15-20 minutes)
 2. Deploys all Lambda function code (~1 minute)
-3. Populates Neptune with 200 sample claims (~5 seconds)
+3. Populates Neptune with 2,000 sample claims (~3 minutes)
 4. **Starts ML training pipeline** (~1-2 hours in background)
 5. Provides API endpoint and deployment summary
 
@@ -337,14 +337,15 @@ See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for detailed endpoint documenta
 ### Vertices
 - **Claimant** - Insurance policy holders
 - **Vehicle** - Insured vehicles (vin, make, year, plate, ownerId)
-- **Claim** - Insurance claims (with fraudScore)
+- **Claim** - Insurance claims
 - **Accident** - Accident events (with accidentType, maneuverType, policeVerified)
-- **RepairShop** - Auto repair facilities (with fraudScore)
-- **MedicalProvider** - Healthcare providers (with fraudScore)
-- **Witness** - Accident witnesses (with fraudScore)
-- **Attorney** - Legal representatives (with fraudScore)
-- **TowCompany** - Tow truck operators (with fraudScore)
-- **Passenger** - Accident passengers (with fraudScore)
+- **RepairShop** - Auto repair facilities
+- **MedicalProvider** - Healthcare providers
+- **Witness** - Accident witnesses
+- **Attorney** - Legal representatives
+- **TowCompany** - Tow truck operators
+- **Passenger** - Accident passengers
+- **fraudEntity** - ML target node linked to suspicious entities (RepairShop, MedicalProvider, Witness, Attorney, TowCompany, Claim, Passenger) via `has_fraud_score` edge; stores the `fraudScore` property used to train the Neptune ML regression model
 
 ### Edges
 - **owns** - Claimant owns Vehicle
@@ -358,6 +359,7 @@ See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for detailed endpoint documenta
 - **towed_by** - Vehicle towed by TowCompany
 - **passenger_in** - Passenger in Accident
 - **claimed_injury** - Passenger claimed injury in Claim
+- **has_fraud_score** - Domain entity linked to its fraudEntity ML target node
 
 ## API Usage
 

@@ -180,7 +180,7 @@ La forma más fácil de desplegar es usando el script proporcionado:
 **Lo que hace el script:**
 1. Despliega el stack de CloudFormation (~15-20 minutos)
 2. Despliega todo el código de funciones Lambda (~1 minuto)
-3. Puebla Neptune con 200 reclamos de muestra (~5 segundos)
+3. Puebla Neptune con 2.000 reclamos de muestra (~3 minutos)
 4. **Inicia el pipeline de entrenamiento ML** (~1-2 horas en segundo plano)
 5. Proporciona el endpoint de la API y resumen del despliegue
 
@@ -339,14 +339,15 @@ Vea [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para documentación detallada d
 ### Vértices
 - **Claimant** - Titulares de pólizas de seguros
 - **Vehicle** - Vehículos asegurados (vin, make, year, plate, ownerId)
-- **Claim** - Reclamos de seguros (con fraudScore)
+- **Claim** - Reclamos de seguros
 - **Accident** - Eventos de accidentes (con accidentType, maneuverType, policeVerified)
-- **RepairShop** - Instalaciones de reparación de autos (con fraudScore)
-- **MedicalProvider** - Proveedores de atención médica (con fraudScore)
-- **Witness** - Testigos de accidentes (con fraudScore)
-- **Attorney** - Representantes legales (con fraudScore)
-- **TowCompany** - Operadores de grúas (con fraudScore)
-- **Passenger** - Pasajeros de accidentes (con fraudScore)
+- **RepairShop** - Instalaciones de reparación de autos
+- **MedicalProvider** - Proveedores de atención médica
+- **Witness** - Testigos de accidentes
+- **Attorney** - Representantes legales
+- **TowCompany** - Operadores de grúas
+- **Passenger** - Pasajeros de accidentes
+- **fraudEntity** - Nodo objetivo de ML vinculado a las entidades sospechosas (RepairShop, MedicalProvider, Witness, Attorney, TowCompany, Claim, Passenger) mediante la arista `has_fraud_score`; almacena la propiedad `fraudScore` utilizada para entrenar el modelo de regresión de Neptune ML
 
 ### Aristas
 - **owns** - Reclamante posee Vehículo
@@ -360,6 +361,7 @@ Vea [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para documentación detallada d
 - **towed_by** - Vehículo remolcado por Compañía de Grúa
 - **passenger_in** - Pasajero en Accidente
 - **claimed_injury** - Pasajero reclamó lesión en Reclamo
+- **has_fraud_score** - Entidad de dominio vinculada a su nodo objetivo fraudEntity de ML
 
 ## Uso de la API
 
