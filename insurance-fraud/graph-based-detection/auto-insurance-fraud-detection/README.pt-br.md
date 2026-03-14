@@ -21,6 +21,8 @@ export AWS_PROFILE=default   # Padrão: default
 ./scripts/deploy.sh
 ```
 
+> **Nota:** O perfil AWS utilizado para a implantação deve ter permissões IAM suficientes para criar e gerenciar recursos como VPCs, buckets S3, roles IAM, funções Lambda, clusters Neptune, API Gateway, distribuições CloudFront, grupos de usuários Cognito e stacks do CloudFormation. Recomenda-se um usuário ou role IAM com **AdministratorAccess** para a implantação inicial. Como esse nível de acesso é altamente permissivo, considere criar um usuário administrador dedicado para a implantação e excluí-lo após a conclusão do `deploy.sh`.
+
 **É isso!** O script leva ~16 minutos e implanta tudo automaticamente usando stacks aninhados do CloudFormation.
 
 ### O Que Você Obtém

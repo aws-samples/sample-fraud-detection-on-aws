@@ -21,6 +21,8 @@ export AWS_PROFILE=default   # Default: default
 ./scripts/deploy.sh
 ```
 
+> **Note:** The AWS profile used for deployment must have sufficient IAM permissions to create and manage resources such as VPCs, S3 buckets, IAM roles, Lambda functions, Neptune clusters, API Gateway, CloudFront distributions, Cognito user pools, and CloudFormation stacks. An IAM user or role with **AdministratorAccess** is recommended for the initial deployment. Since this level of access is highly permissive, consider creating a dedicated admin user for the deployment, and deleting it once `deploy.sh` completes.
+
 **That's it!** The script takes ~16 minutes and deploys everything automatically using nested CloudFormation stacks.
 
 ### What You Get
