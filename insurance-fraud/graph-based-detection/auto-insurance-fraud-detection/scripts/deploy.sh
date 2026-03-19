@@ -245,7 +245,7 @@ aws apigateway create-deployment \
   --stage-name prod \
   --description "Deployment with AllowedOrigin=$CLOUDFRONT_URL" \
   --region $REGION --profile $PROFILE \
-  --query 'id' --output text 2>/dev/null && echo "✅ API Gateway redeployed with correct CORS origin!" || echo "⚠️  API Gateway redeployment skipped"
+  --query 'id' --output text 2>/dev/null && echo "✅ API Gateway deployed with correct CORS origin!" || echo "⚠️  API Gateway deployment skipped"
 
 aws apigateway flush-stage-cache \
   --rest-api-id $API_ID \
