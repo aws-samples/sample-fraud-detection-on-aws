@@ -8,6 +8,7 @@ Description: 'CloudFront WAF WebACL (must be deployed in us-east-1)'
 Resources:
   CloudFrontWebACL:
     Type: AWS::WAFv2::WebACL
+    DeletionPolicy: Retain
     Properties:
       Name: !Sub '${AWS::StackName}-CloudFront-WebACL'
       Scope: CLOUDFRONT
