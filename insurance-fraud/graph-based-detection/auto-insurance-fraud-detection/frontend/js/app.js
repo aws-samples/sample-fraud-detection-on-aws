@@ -140,9 +140,6 @@ class App {
                 case 'claims-detail':
                     this.showClaimDetailForm();
                     break;
-                case 'claimants-claims':
-                    this.showClaimantClaimsForm();
-                    break;
                 case 'claimants-risk-score':
                     this.showClaimantRiskScoreForm();
                     break;
@@ -223,6 +220,7 @@ class App {
                         <button id="modalClose" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-content">
+                        <div id="crossClaimMetrics"></div>
                         <div class="view-header">
                             ${this.legendHTML()}
                         </div>
@@ -257,6 +255,43 @@ class App {
                     try {
                         const networkData = await api.getCrossClaimPatterns(id);
                         
+                        // Render metrics if available
+                        const metricsContainer = document.getElementById('crossClaimMetrics');
+                        if (networkData.metrics) {
+                            const m = networkData.metrics;
+                            const flags = m.redFlags || {};
+                            metricsContainer.innerHTML = DOMPurify.sanitize(`
+                                <div class="metrics-grid">
+                                    <div class="metric-card">
+                                        <div class="metric-label">Total Claims</div>
+                                        <div class="metric-value">${m.totalClaims}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Unique Shops</div>
+                                        <div class="metric-value">${m.uniqueRepairShops}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Shop Diversity</div>
+                                        <div class="metric-value">${(m.shopDiversity * 100).toFixed(0)}%</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Unique Witnesses</div>
+                                        <div class="metric-value">${m.uniqueWitnesses}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Witness Diversity</div>
+                                        <div class="metric-value">${(m.witnessDiversity * 100).toFixed(0)}%</div>
+                                    </div>
+                                </div>
+                                <div class="red-flags">
+                                    ${flags.sameShopAlways ? '<span class="flag flag-red">⚠ Same shop across all claims</span>' : ''}
+                                    ${flags.sameWitnessAlways ? '<span class="flag flag-red">⚠ Same witness across all claims</span>' : ''}
+                                    ${flags.lowDiversity ? '<span class="flag flag-red">⚠ Very low entity diversity</span>' : ''}
+                                    ${!flags.sameShopAlways && !flags.sameWitnessAlways && !flags.lowDiversity ? '<span class="flag flag-green">No red flags detected</span>' : ''}
+                                </div>
+                            `);
+                        }
+                        
                         const graphContainer = document.getElementById('graphContainer');
                         graphContainer.innerHTML = '';
                         
@@ -266,7 +301,7 @@ class App {
                         const graphData = this.transformToGraphData(networkData);
                         this.graph.renderGraph(graphData);
                     } catch (error) {
-                        alert(`Error: ${error.message}`);
+                        document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`&lt;div class="error"&gt;Error: ${error.message}&lt;/div&gt;`);
                     } finally {
                         viewBtn.disabled = false;
                         viewBtn.textContent = i18n.t('view');
@@ -284,11 +319,10 @@ class App {
         container.innerHTML = DOMPurify.sanitize(`<div class="loading">${i18n.t('loading')}</div>`);
         
         try {
-            // Get claimant IDs
-            const data = await api.listClaimants();
-            const claimantIds = data.claimants;
+            const data = await api.getInfluentialClaimants();
+            const claimants = data.topInfluentialClaimants || [];
             
-            if (claimantIds.length === 0) {
+            if (claimants.length === 0) {
                 container.innerHTML = DOMPurify.sanitize(`<div class="error">${i18n.t('noClaimantsFound')}</div>`);
                 return;
             }
@@ -298,65 +332,74 @@ class App {
                     <h2 data-i18n="influentialClaimants">${i18n.t('influentialClaimants')}</h2>
                     <p class="fraud-description" data-i18n="descInfluentialClaimants">${i18n.t('descInfluentialClaimants')}</p>
                 </div>
-                <div class="form-container">
-                    <div class="form-group">
-                        <label for="claimantIdInput" data-i18n="enterClaimantId">${i18n.t('enterClaimantId')}</label>
-                        <input type="text" id="claimantIdInput" placeholder="${i18n.t('enterClaimantId')}">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Claims</th>
+                            <th>Connections</th>
+                            <th>Influence</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${claimants.map(c => `
+                            <tr>
+                                <td>${c.name || c.claimantId.substring(0, 8) + '...'}</td>
+                                <td>${c.claimCount}</td>
+                                <td>${c.connectionScore}</td>
+                                <td><span class="risk-badge risk-${c.influenceLevel}">${c.influenceLevel}</span></td>
+                                <td><button class="btn-primary btn-sm" data-claimant-id="${c.claimantId}">View Network</button></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                <div id="modalOverlay" class="modal-overlay">
+                  <div class="modal-dialog">
+                    <div class="modal-header">
+                        <h2 class="modal-title">${i18n.t('influentialClaimants')}</h2>
+                        <button id="modalClose" class="modal-close">&times;</button>
                     </div>
-                    <div class="form-group">
-                        <label for="entitySelect" data-i18n="orSelectClaimant">${i18n.t('orSelectClaimant')}</label>
-                        <select id="entitySelect">
-                            <option value="" data-i18n="selectClaimant">${i18n.t('selectClaimant')}</option>
-                            ${claimantIds.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-                        </select>
+                    <div class="modal-content">
+                        <div class="view-header">
+                            ${this.legendHTML()}
+                        </div>
+                        <div id="graphContainer" class="graph-container"></div>
                     </div>
-                    <button id="viewBtn" class="btn-primary" data-i18n="viewNetwork">${i18n.t('viewNetwork')}</button>
+                  </div>
                 </div>
-                <div id="resultContainer"></div>
             `);
             
-            const inputEl = document.getElementById('claimantIdInput');
-            const selectEl = document.getElementById('entitySelect');
-            const viewBtn = document.getElementById('viewBtn');
+            const modalOverlay = document.getElementById('modalOverlay');
+            const modalClose = document.getElementById('modalClose');
             
-            inputEl.addEventListener('input', () => {
-                if (inputEl.value) selectEl.value = '';
+            modalClose.addEventListener('click', () => {
+                modalOverlay.classList.remove('active');
+            });
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target === modalOverlay) modalOverlay.classList.remove('active');
             });
             
-            selectEl.addEventListener('change', () => {
-                if (selectEl.value) inputEl.value = '';
-            });
-            
-            viewBtn.addEventListener('click', async () => {
-                const id = inputEl.value || selectEl.value;
-                if (id) {
-                    viewBtn.disabled = true;
-                    viewBtn.textContent = i18n.t('loading');
+            container.querySelectorAll('[data-claimant-id]').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-claimant-id');
+                    btn.disabled = true;
+                    btn.textContent = i18n.t('loading');
                     try {
-                        // Use cross-claim patterns endpoint to show claimant's network
-                        const networkData = await api.getCrossClaimPatterns(id);
-                        
-                        // Render graph in resultContainer instead of replacing whole view
-                        const resultContainer = document.getElementById('resultContainer');
-                        resultContainer.innerHTML = DOMPurify.sanitize(`
-                            <div class="view-header">
-                                ${this.legendHTML()}
-                            </div>
-                            <div id="graphContainer" class="graph-container"></div>
-                        `);
-                        
-                        // Initialize graph
+                        const networkData = await api.getClaimantFraudAnalysis(id);
+                        const graphContainer = document.getElementById('graphContainer');
+                        graphContainer.innerHTML = '';
+                        modalOverlay.classList.add('active');
                         this.graph = new GraphVisualizer('graphContainer');
                         const graphData = this.transformToGraphData(networkData);
                         this.graph.renderGraph(graphData);
                     } catch (error) {
-                        document.getElementById('resultContainer').innerHTML = DOMPurify.sanitize(
-                            `<div class="error">${i18n.t('error')}: ${error.message}</div>`);
+                        document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`&lt;div class="error"&gt;Error: ${error.message}&lt;/div&gt;`);
                     } finally {
-                        viewBtn.disabled = false;
-                        viewBtn.textContent = i18n.t('viewNetwork');
+                        btn.disabled = false;
+                        btn.textContent = 'View Network';
                     }
-                }
+                });
             });
         } catch (error) {
             container.innerHTML = DOMPurify.sanitize(`<div class="error">${i18n.t('error')}: ${error.message}</div>`);
@@ -420,13 +463,37 @@ class App {
         container.innerHTML = DOMPurify.sanitize(`<div class=\"loading\">${i18n.t('loading')}</div>`);
         
         try {
-            // Get claimant IDs
-            const data = await api.listClaimants();
-            const claimantIds = data.claimants;
+            const [claimantData, autoData] = await Promise.all([
+                api.listClaimants(),
+                api.getConnections()
+            ]);
+            const claimantIds = claimantData.claimants;
             
             if (claimantIds.length === 0) {
                 container.innerHTML = DOMPurify.sanitize(`<div class=\"error\">${i18n.t('noClaimantsFound')}</div>`);
                 return;
+            }
+
+            // Build auto-detected connections HTML
+            let autoHTML = '';
+            if (autoData.fraudNetworkConnections && autoData.fraudNetworkConnections.length > 0) {
+                autoHTML = `
+                    <table class="data-table">
+                        <thead><tr><th>Source</th><th>Target</th><th>Path Length</th><th>Type</th><th></th></tr></thead>
+                        <tbody>
+                            ${autoData.fraudNetworkConnections.map(p => `
+                                <tr>
+                                    <td>${p.sourceName || p.source}</td>
+                                    <td>${p.targetName || p.target}</td>
+                                    <td>${p.pathLength}</td>
+                                    <td>${p.connectionType}</td>
+                                    <td><button class="btn-sm auto-view-path" data-source="${p.source}" data-target="${p.target}">View Path</button></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>`;
+            } else {
+                autoHTML = `<p>No auto-detected connections found.</p>`;
             }
             
             container.innerHTML = DOMPurify.sanitize(`
@@ -434,85 +501,55 @@ class App {
                     <h2 data-i18n="connections">${i18n.t('connections')}</h2>
                     <p class="fraud-description" data-i18n="descConnections">${i18n.t('descConnections')}</p>
                 </div>
-                <div class="form-container">
-                    <div class="form-group">
-                        <label for="sourceSelect">Source Claimant:</label>
-                        <select id="sourceSelect">
-                            <option value="">-- Select Source --</option>
-                            ${claimantIds.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-                        </select>
+                ${autoHTML}
+
+                <div id="modalOverlay" class="modal-overlay">
+                  <div class="modal-dialog">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Connection Path</h2>
+                        <button id="modalClose" class="modal-close">&times;</button>
                     </div>
-                    <div class="form-group">
-                        <label for="targetSelect">Target Claimant:</label>
-                        <select id="targetSelect">
-                            <option value="">-- Select Target --</option>
-                            ${claimantIds.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-                        </select>
+                    <div class="modal-content">
+                        <div id="pathInfo"></div>
+                        <div class="view-header">${this.legendHTML()}</div>
+                        <div id="graphContainer" class="graph-container"></div>
                     </div>
-                    <button id="viewBtn" class="btn-primary" disabled>Find Connection</button>
+                  </div>
                 </div>
-                <div id="resultContainer"></div>
             `);
-            
-            const sourceSelect = document.getElementById('sourceSelect');
-            const targetSelect = document.getElementById('targetSelect');
-            const viewBtn = document.getElementById('viewBtn');
-            
-            const updateButton = () => {
-                viewBtn.disabled = !sourceSelect.value || !targetSelect.value;
-            };
-            
-            sourceSelect.addEventListener('change', updateButton);
-            targetSelect.addEventListener('change', updateButton);
-            
-            viewBtn.addEventListener('click', async () => {
-                const sourceId = sourceSelect.value;
-                const targetId = targetSelect.value;
-                
-                if (sourceId && targetId) {
-                    viewBtn.disabled = true;
-                    viewBtn.textContent = i18n.t('loading');
-                    try {
-                        // Get both networks and merge them
-                        const [sourceNetwork, targetNetwork] = await Promise.all([
-                            api.getCrossClaimPatterns(sourceId),
-                            api.getCrossClaimPatterns(targetId)
-                        ]);
-                        
-                        // Merge the networks
-                        const mergedNetwork = {
-                            nodes: [...sourceNetwork.nodes, ...targetNetwork.nodes],
-                            edges: [...sourceNetwork.edges, ...targetNetwork.edges]
-                        };
-                        
-                        // Remove duplicate nodes
-                        const nodeMap = new Map();
-                        mergedNetwork.nodes.forEach(n => nodeMap.set(n.id, n));
-                        mergedNetwork.nodes = Array.from(nodeMap.values());
-                        
-                        // Render graph in resultContainer
-                        const resultContainer = document.getElementById('resultContainer');
-                        resultContainer.innerHTML = DOMPurify.sanitize(`
-                            <div class="view-header">
-                                ${this.legendHTML()}
-                            </div>
-                            <div id="graphContainer" class="graph-container"></div>
-                        `);
-                        
+
+            const modalOverlay = document.getElementById('modalOverlay');
+            const modalClose = document.getElementById('modalClose');
+            modalClose.addEventListener('click', () => modalOverlay.classList.remove('active'));
+            modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove('active'); });
+
+            // Shared path rendering in modal
+            const renderPath = async (sourceId, targetId) => {
+                modalOverlay.classList.add('active');
+                document.getElementById('pathInfo').innerHTML = DOMPurify.sanitize(`<div class="loading">${i18n.t('loading')}</div>`);
+                document.getElementById('graphContainer').innerHTML = '';
+                try {
+                    const data = await api.getConnections(sourceId, targetId);
+                    if (!data.nodes || data.nodes.length === 0) {
+                        document.getElementById('pathInfo').innerHTML = DOMPurify.sanitize(
+                            `<div class="error">${data.message || 'No path found between the selected claimants.'}</div>`);
+                    } else {
+                        document.getElementById('pathInfo').innerHTML = DOMPurify.sanitize(
+                            `<p><strong>Path length:</strong> ${data.pathLength} nodes</p>`);
                         this.graph = new GraphVisualizer('graphContainer');
-                        const graphData = this.transformToGraphData(mergedNetwork);
-                        this.graph.renderGraph(graphData);
-                    } catch (error) {
-                        document.getElementById('resultContainer').innerHTML = DOMPurify.sanitize(
-                            `<div class="error">Error: ${error.message}</div>`);
-                    } finally {
-                        viewBtn.disabled = false;
-                        viewBtn.textContent = i18n.t('view');
+                        this.graph.renderGraph(this.transformToGraphData(data));
                     }
+                } catch (error) {
+                    document.getElementById('pathInfo').innerHTML = DOMPurify.sanitize(`<div class="error">Error: ${error.message}</div>`);
                 }
+            };
+
+            // Auto-detected path buttons
+            document.querySelectorAll('.auto-view-path').forEach(btn => {
+                btn.addEventListener('click', () => renderPath(btn.dataset.source, btn.dataset.target));
             });
         } catch (error) {
-            container.innerHTML = DOMPurify.sanitize(`<div class="error">Error loading claimants: ${error.message}</div>`);
+            container.innerHTML = DOMPurify.sanitize(`<div class="error">Error loading connections: ${error.message}</div>`);
         }
     }
 
@@ -692,7 +729,7 @@ class App {
                     viewBtn.disabled = false;
                     viewBtn.textContent = i18n.t('view');
                 } catch (error) {
-                    alert('Error loading ring: ' + error.message);
+                    document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`<div class="error">Error loading ring: ${error.message}</div>`);
                     viewBtn.disabled = false;
                     viewBtn.textContent = i18n.t('view');
                 }
@@ -729,17 +766,243 @@ class App {
     // Analytics views
     async showFraudTrends() {
         const data = await api.getFraudTrends();
-        this.renderDataView('fraudTrends', data);
+        const container = document.getElementById('viewContainer');
+        const fraudRate = ((data.fraudRate || 0) * 100).toFixed(1);
+        const riskClass = data.fraudRate > 0.1 ? 'risk-high' : data.fraudRate > 0.05 ? 'risk-medium' : 'risk-low';
+        container.innerHTML = DOMPurify.sanitize(`
+            <div class="view-header">
+                <h2 data-i18n="fraudTrends">${i18n.t('fraudTrends')}</h2>
+                <p class="fraud-description" data-i18n="descFraudTrends">${i18n.t('descFraudTrends')}</p>
+                <p class="fraud-description">
+                    <strong>Total Claims</strong> — all claims recorded in the system. Split into <strong>Approved</strong> (paid out), <strong>Rejected</strong> (denied), and <strong>Pending</strong> (under review).<br>
+                    <strong>Statistical Anomalies</strong> — claims whose amount is unusually high or low compared to all other claims. Specifically, claims that deviate more than 2× the typical spread from the average amount — a standard statistical technique to flag outliers without needing labelled fraud data.<br>
+                    <strong>Anomaly Rate</strong> — share of all claims flagged as anomalies.<br>
+                    <strong>Est. Fraud Exposure</strong> — total dollar value of anomalous claims. This is an estimate; not every anomaly is confirmed fraud.<br>
+                    <strong>Exposure as % of Total</strong> — how much of all claim value is tied to anomalous claims.<br>
+                    <strong>Avg Claim Amount</strong> — the baseline used to detect anomalies.<br>
+                    <strong>Suspicious Repair Shops</strong> — shops flagged by fraud scores or network patterns.
+                </p>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Total Claims</div>
+                    <div class="metric-value">${data.totalClaims || 0}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Approved</div>
+                    <div class="metric-value">${data.approvedClaims || 0}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Rejected</div>
+                    <div class="metric-value">${data.rejectedClaims || 0}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Pending</div>
+                    <div class="metric-value">${data.pendingClaims || 0}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Statistical Anomalies</div>
+                    <div class="metric-value">${data.highFraudClaims || 0}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Anomaly Rate</div>
+                    <div class="metric-value"><span class="risk-badge ${riskClass}">${fraudRate}%</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Est. Fraud Exposure</div>
+                    <div class="metric-value" style="color:#ef4444">$${(data.estimatedFraudExposure || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Exposure as % of Total</div>
+                    <div class="metric-value" style="color:#ef4444">${((data.fraudExposureRate || 0) * 100).toFixed(1)}%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Claim Amount</div>
+                    <div class="metric-value">$${(data.totalClaimAmount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Avg Claim Amount</div>
+                    <div class="metric-value">$${(data.avgClaimAmount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Claimants</div>
+                    <div class="metric-value">${data.totalClaimants || 0}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Suspicious Repair Shops</div>
+                    <div class="metric-value">${data.suspiciousRepairShops || 0}</div>
+                </div>
+            </div>
+        `);
     }
 
     async showGeographicHotspots() {
+        const container = document.getElementById('viewContainer');
+        container.innerHTML = DOMPurify.sanitize(`<div class="loading">${i18n.t('loading')}</div>`);
         const data = await api.getGeographicHotspots();
-        this.renderGraphView('geographicHotspots', data);
+
+        const tabs = [
+            { key: 'repairShops',      label: 'Repair Shops' },
+            { key: 'medicalProviders', label: 'Medical Providers' },
+            { key: 'attorneys',        label: 'Attorneys' },
+            { key: 'towCompanies',     label: 'Tow Companies' },
+        ];
+
+        container.innerHTML = DOMPurify.sanitize(`
+            <div class="view-header">
+                <h2 data-i18n="geographicHotspots">${i18n.t('geographicHotspots')}</h2>
+                <p class="fraud-description" data-i18n="descGeographicHotspots">${i18n.t('descGeographicHotspots')}</p>
+            </div>
+            <div class="tab-bar">
+                ${tabs.map((t, i) => `<button class="tab-btn${i === 0 ? ' active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
+            </div>
+            <div id="hotspotContent"></div>
+        `);
+
+        const renderTab = (key) => {
+            const tabData = data[key] || { nodes: [], edges: [] };
+            const content = document.getElementById('hotspotContent');
+            content.innerHTML = '';
+
+            // Extract hub nodes (non-claimant, non-claim) to build per-entity cards
+            const hubNodes = (tabData.nodes || []).filter(n => n.type !== 'claimant' && n.type !== 'claim' && n.type !== 'passenger');
+
+            if (!hubNodes.length) {
+                content.innerHTML = DOMPurify.sanitize('<div class="info">No data found for this entity type.</div>');
+                return;
+            }
+
+            hubNodes.forEach((hub, index) => {
+                // Build sub-graph: hub node + its direct neighbors
+                const hubId = hub.id;
+                const neighborIds = new Set(
+                    (tabData.edges || [])
+                        .filter(e => e.source === hubId || e.target === hubId)
+                        .map(e => e.source === hubId ? e.target : e.source)
+                );
+                const subNodes = [hub, ...(tabData.nodes || []).filter(n => neighborIds.has(n.id))];
+                const subEdges = (tabData.edges || []).filter(e => e.source === hubId || e.target === hubId);
+
+                const card = document.createElement('div');
+                card.className = 'modal-dialog';
+                card.style.cssText = 'position:relative;margin:20px auto;max-height:none;';
+                card.innerHTML = DOMPurify.sanitize(`
+                    <div class="modal-header">
+                        <h2 class="modal-title">${hub.name || hub.id}</h2>
+                    </div>
+                    <div class="modal-content">
+                        <div class="view-header">${this.legendHTML(true)}</div>
+                        <div id="hotspot-graph-${key}-${index}" class="graph-container" style="min-height:400px;"></div>
+                    </div>
+                `);
+                content.appendChild(card);
+
+                if (subNodes.length > 1) {
+                    const viz = new GraphVisualizer(`hotspot-graph-${key}-${index}`);
+                    viz.renderGraph({ nodes: subNodes, edges: subEdges });
+                }
+            });
+        };
+
+        renderTab('repairShops');
+
+        container.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                renderTab(btn.dataset.tab);
+            });
+        });
     }
 
     async showClaimAnomalies() {
         const data = await api.getClaimAmountAnomalies();
-        this.renderDataView('claimAnomalies', data);
+        const stats = data.statistics || {};
+        const anomalies = data.allAnomalies || [];
+        const container = document.getElementById('viewContainer');
+        container.innerHTML = DOMPurify.sanitize(`
+            <div class="view-header">
+                <h2 data-i18n="claimAnomalies">${i18n.t('claimAnomalies')}</h2>
+                <p class="fraud-description" data-i18n="descClaimAnomalies">${i18n.t('descClaimAnomalies')}</p>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Mean Amount</div>
+                    <div class="metric-value">$${(stats.meanAmount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Std Deviation</div>
+                    <div class="metric-value">$${(stats.standardDeviation || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Claims</div>
+                    <div class="metric-value">${stats.totalClaims || 0}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Anomalies Detected</div>
+                    <div class="metric-value">${data.anomaliesDetected || 0}</div>
+                </div>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Claim ID</th>
+                        <th>Amount</th>
+                        <th>Z-Score</th>
+                        <th>Type</th>
+                        <th>Risk Level</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${anomalies.map((a, i) => `
+                        <tr>
+                            <td>${i + 1}</td>
+                            <td><a href="#" class="claim-link" data-id="${a.claimId}" title="${a.claimId}">${a.claimId.substring(0, 8)}...</a></td>
+                            <td>$${a.amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                            <td>${a.zScore.toFixed(2)}</td>
+                            <td>${a.anomalyType.replace('_', ' ')}</td>
+                            <td><span class="badge badge-${a.riskLevel}">${a.riskLevel}</span></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+
+            <div id="modalOverlay" class="modal-overlay">
+              <div class="modal-dialog">
+                <div class="modal-header">
+                    <h2 class="modal-title">Claim Details</h2>
+                    <button id="modalClose" class="modal-close">&times;</button>
+                </div>
+                <div class="modal-content">
+                    <div class="view-header">${this.legendHTML()}</div>
+                    <div id="graphContainer" class="graph-container"></div>
+                </div>
+              </div>
+            </div>
+        `);
+
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalClose = document.getElementById('modalClose');
+        modalClose.addEventListener('click', () => modalOverlay.classList.remove('active'));
+        modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove('active'); });
+
+        document.querySelectorAll('.claim-link').forEach(link => {
+            link.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const claimId = link.dataset.id;
+                modalOverlay.classList.add('active');
+                document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`<div class="loading">${i18n.t('loading')}</div>`);
+                try {
+                    const graphData = await api.getClaimGraph(claimId);
+                    document.getElementById('graphContainer').innerHTML = '';
+                    this.graph = new GraphVisualizer('graphContainer');
+                    this.graph.renderGraph(this.transformToGraphData(graphData));
+                } catch (err) {
+                    document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`<div class="error">Error: ${err.message}</div>`);
+                }
+            });
+        });
     }
 
     async showTemporalPatterns() {
@@ -756,16 +1019,24 @@ class App {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Claimant ID</th>
+                            <th>Claimant</th>
                             <th>Claim Count</th>
+                            <th>Total Amount</th>
+                            <th>Rejection Rate</th>
+                            <th>Avg Fraud Score</th>
+                            <th>Avg Days Between Claims</th>
                             <th>Suspicion Level</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${data.rapidFilers.map(r => `
                             <tr>
-                                <td>${r.claimantId}</td>
+                                <td>${r.name || r.claimantId}</td>
                                 <td>${r.claimCount}</td>
+                                <td>$${(r.totalAmount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                <td>${((r.rejectionRate || 0) * 100).toFixed(0)}%</td>
+                                <td>${((r.avgFraudScore || 0) * 100).toFixed(0)}%</td>
+                                <td>${r.avgDaysBetweenClaims != null ? r.avgDaysBetweenClaims.toFixed(1) + ' days' : 'N/A'}</td>
                                 <td><span class="badge badge-${r.suspicionLevel}">${r.suspicionLevel}</span></td>
                             </tr>
                         `).join('')}
@@ -798,8 +1069,72 @@ class App {
     }
 
     async showFraudHubs() {
-        const data = await api.getFraudHubs();
-        this.renderGraphView('fraudHubs', data);
+        const container = document.getElementById('viewContainer');
+        container.innerHTML = DOMPurify.sanitize(`<div class="loading">${i18n.t('loading')}</div>`);
+        try {
+            const data = await api.getFraudHubs();
+            const tabs = [
+                { key: 'repairShop',      label: i18n.t('entityRepairShop') },
+                { key: 'medicalProvider', label: i18n.t('entityMedicalProvider') },
+                { key: 'attorney',        label: i18n.t('entityAttorney') },
+            ];
+            container.innerHTML = DOMPurify.sanitize(`
+                <div class="view-header">
+                    <h2>${i18n.t('fraudHubs')}</h2>
+                    <p class="fraud-description">${i18n.t('descFraudHubs')}</p>
+                    <p class="fraud-description">${i18n.t('rationaleFraudHubs')}</p>
+                </div>
+                <div class="tab-bar">
+                    ${tabs.map((t, i) => `<button class="tab-btn${i===0?' active':''}" data-tab="${t.key}">${t.label}</button>`).join('')}
+                </div>
+                <div id="hubTabContent"></div>
+            `);
+
+            const renderTab = (key) => {
+                const tabData = data[key] || { hubs: [] };
+                const content = document.getElementById('hubTabContent');
+                content.innerHTML = '';
+
+                if (!tabData.hubs?.length) {
+                    content.innerHTML = DOMPurify.sanitize('<div class="info">No hubs found.</div>');
+                    return;
+                }
+
+                tabData.hubs.forEach((hub, index) => {
+                    const collusionPct = hub.collusionScore != null ? Math.round(hub.collusionScore * 100) + '%' : '—';
+                    const card = document.createElement('div');
+                    card.className = 'modal-dialog';
+                    card.style.cssText = 'position:relative;margin:20px auto;max-height:none;';
+                    card.innerHTML = DOMPurify.sanitize(`
+                        <div class="modal-header">
+                            <h2 class="modal-title">${hub.name} — ${hub.uniqueClaimants} claimants, ${collusionPct} collusion</h2>
+                        </div>
+                        <div class="modal-content">
+                            <div class="view-header">${this.legendHTML(true)}</div>
+                            <div id="hub-graph-${key}-${index}" class="graph-container" style="min-height:400px;"></div>
+                        </div>
+                    `);
+                    content.appendChild(card);
+
+                    if (hub.graph?.nodes?.length) {
+                        const viz = new GraphVisualizer(`hub-graph-${key}-${index}`);
+                        viz.renderGraph(hub.graph);
+                    }
+                });
+            };
+
+            renderTab('repairShop');
+
+            container.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    renderTab(btn.dataset.tab);
+                });
+            });
+        } catch (e) {
+            container.innerHTML = DOMPurify.sanitize(`<div class="error">${e.message}</div>`);
+        }
     }
 
     // Forms for parameterized endpoints
@@ -891,7 +1226,7 @@ class App {
                         const graphData = this.transformToGraphData(claimData);
                         this.graph.renderGraph(graphData);
                     } catch (error) {
-                        alert(`Error: ${error.message}`);
+                        document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`&lt;div class="error"&gt;Error: ${error.message}&lt;/div&gt;`);
                     } finally {
                         viewBtn.disabled = false;
                         viewBtn.textContent = i18n.t('view');
@@ -906,14 +1241,14 @@ class App {
     showClaimantRiskScoreForm() {
         this.showModalSelectForm(i18n.t('riskScore'), 'riskScore', 'claimant', async (id) => {
             const data = await api.getClaimantRiskScore(id);
-            return { type: 'data', data };
+            return { type: 'riskScore', data };
         });
     }
 
     showClaimantVelocityForm() {
         this.showModalSelectForm(i18n.t('claimVelocity'), 'claimVelocity', 'claimant', async (id) => {
             const data = await api.getClaimantVelocity(id);
-            return { type: 'data', data };
+            return { type: 'claimVelocity', data };
         });
     }
 
@@ -953,6 +1288,7 @@ class App {
                         <button id="modalClose" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-content">
+                        <div id="riskMetrics"></div>
                         <div class="view-header">
                             ${this.legendHTML()}
                         </div>
@@ -985,9 +1321,36 @@ class App {
                     viewBtn.disabled = true;
                     viewBtn.textContent = i18n.t('loading');
                     try {
-                        const analysisData = await api.getClaimantFraudAnalysis(id);
+                        const [analysisData, riskData] = await Promise.all([
+                            api.getClaimantFraudAnalysis(id),
+                            api.getClaimantRiskScore(id)
+                        ]);
                         
-                        // Clear previous graph
+                        // Render risk metrics
+                        const metricsContainer = document.getElementById('riskMetrics');
+                        const riskClass = riskData.riskScore > 0.7 ? 'high' : riskData.riskScore > 0.5 ? 'medium' : 'low';
+                        metricsContainer.innerHTML = DOMPurify.sanitize(`
+                            <div class="metrics-grid">
+                                <div class="metric-card">
+                                    <div class="metric-label">Risk Score</div>
+                                    <div class="metric-value"><span class="risk-badge risk-${riskClass}">${(riskData.riskScore * 100).toFixed(0)}%</span></div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-label">Total Claims</div>
+                                    <div class="metric-value">${riskData.totalClaims}</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-label">Rejected</div>
+                                    <div class="metric-value">${riskData.rejectedClaims} (${(riskData.rejectionRate * 100).toFixed(0)}%)</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-label">Total Amount</div>
+                                    <div class="metric-value">$${riskData.totalClaimAmount.toLocaleString()}</div>
+                                </div>
+                            </div>
+                        `);
+                        
+                        // Clear and render graph
                         const graphContainer = document.getElementById('graphContainer');
                         graphContainer.innerHTML = '';
                         
@@ -997,7 +1360,7 @@ class App {
                         const graphData = this.transformToGraphData(analysisData);
                         this.graph.renderGraph(graphData);
                     } catch (error) {
-                        alert(`Error: ${error.message}`);
+                        document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`&lt;div class="error"&gt;Error: ${error.message}&lt;/div&gt;`);
                     } finally {
                         viewBtn.disabled = false;
                         viewBtn.textContent = i18n.t('analyze');
@@ -1011,29 +1374,35 @@ class App {
 
     showClaimDetailForm() {
         this.showModalSelectForm(i18n.t('claimDetails'), 'claimDetails', 'claim', async (id) => {
-            const data = await api.getClaim(id);
-            return { type: 'data', data };
+            const [data, graph] = await Promise.all([api.getClaim(id), api.getClaimGraph(id)]);
+            return { type: 'claimDetails', data, graph };
         });
     }
 
     showRepairShopStatsForm() {
         this.showModalSelectForm(i18n.t('repairShopStats'), 'repairShopStats', 'repair-shop', async (id) => {
-            const graph = await api.getRepairShopNetwork(id);
-            return { type: 'graph', data: graph };
+            const [stats, graph] = await Promise.all([
+                api.getRepairShopStatistics(id),
+                api.getRepairShopNetwork(id),
+            ]);
+            return { type: 'repairShopStats', stats, graph };
         });
     }
 
     showVehicleFraudHistoryForm() {
         this.showModalSelectForm(i18n.t('vehicleFraudHistory'), 'vehicleFraudHistory', 'vehicle', async (id) => {
-            const data = await api.getVehicleFraudHistory(id);
-            return { type: 'data', data };
+            const [data, graph] = await Promise.all([api.getVehicleFraudHistory(id), api.getVehicleNetwork(id)]);
+            return { type: 'vehicleFraudHistory', data, graph };
         });
     }
 
     showMedicalProviderFraudForm() {
         this.showModalSelectForm(i18n.t('medicalProviderFraud'), 'medicalProviderFraud', 'medical-provider', async (id) => {
-            const graph = await api.getMedicalProviderNetwork(id);
-            return { type: 'graph', data: graph };
+            const [analysis, graph] = await Promise.all([
+                api.getMedicalProviderFraudAnalysis(id),
+                api.getMedicalProviderNetwork(id),
+            ]);
+            return { type: 'medicalProviderFraud', analysis, graph };
         });
     }
 
@@ -1096,7 +1465,11 @@ class App {
             }
             
             const getOptionLabel = (item) => {
-                if (entityType === 'claim') return `$${item.amount} - ${item.date}`;
+                if (entityType === 'claim') {
+                    const d = item.date ? new Date(item.date * 1000) : null;
+                    const dateStr = d ? `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}` : 'N/A';
+                    return `${item.id.substring(0,8)}... (amount: $${Number(item.amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}, date: ${dateStr})`;
+                }
                 if (entityType === 'vehicle') return `${item.year} ${item.make} · ${item.plate}`;
                 return item.name;
             };
@@ -1166,8 +1539,126 @@ class App {
                         const result = await callback(id);
                         
                         modalContentArea.innerHTML = '';
-                        
-                        if (result.type === 'graph') {
+
+                        if (result.type === 'claimDetails') {
+                            const d = result.data;
+                            const fraudPct = d.fraudScore != null ? (d.fraudScore*100).toFixed(1)+'%' : '—';
+                            const riskColor = d.fraudScore > 0.7 ? '#ef4444' : d.fraudScore > 0.4 ? '#f59e0b' : '#10b981';
+                            const date = d.timestamp ? new Date(d.timestamp*1000).toLocaleDateString() : '—';
+                            modalContentArea.innerHTML = DOMPurify.sanitize(`
+                                <div class="metrics-grid" style="margin-bottom:1rem">
+                                    <div class="metric-card"><div class="metric-value">$${Number(d.amount||0).toLocaleString()}</div><div class="metric-label">Amount</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.status ?? '—'}</div><div class="metric-label">Status</div></div>
+                                    <div class="metric-card"><div class="metric-value" style="color:${riskColor}">${fraudPct}</div><div class="metric-label">Fraud Score</div></div>
+                                    <div class="metric-card"><div class="metric-value">${date}</div><div class="metric-label">Date</div></div>
+                                </div>
+                                <div class="view-header">${this.legendHTML()}</div>
+                                <div id="graphContainer" class="graph-container"></div>
+                            `);
+                            modalOverlay.classList.add('active');
+                            this.graph = new GraphVisualizer('graphContainer');
+                            this.graph.renderGraph(this.transformToGraphData(result.graph));
+                        } else if (result.type === 'riskScore') {
+                            const d = result.data;
+                            const riskColor = d.riskScore > 0.7 ? '#ef4444' : d.riskScore > 0.4 ? '#f59e0b' : '#10b981';
+                            modalContentArea.innerHTML = DOMPurify.sanitize(`
+                                <div class="metrics-grid">
+                                    <div class="metric-card"><div class="metric-value" style="color:${riskColor}">${d.riskScore != null ? (d.riskScore*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">Risk Score</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.totalClaims ?? '—'}</div><div class="metric-label">Total Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.rejectedClaims ?? '—'}</div><div class="metric-label">Rejected Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.rejectionRate != null ? (d.rejectionRate*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">Rejection Rate</div></div>
+                                    <div class="metric-card"><div class="metric-value">$${Number(d.totalClaimAmount||0).toLocaleString()}</div><div class="metric-label">Total Amount</div></div>
+                                </div>
+                            `);
+                            modalOverlay.classList.add('active');
+                        } else if (result.type === 'claimVelocity') {
+                            const d = result.data;
+                            const riskColor = d.velocityRisk === 'high' ? '#ef4444' : d.velocityRisk === 'medium' ? '#f59e0b' : '#10b981';
+                            const flags = d.redFlags || {};
+                            const flagBadges = Object.entries(flags).filter(([,v])=>v).map(([k])=>
+                                `<span class="risk-badge high">${k.replace(/([A-Z])/g,' $1').toLowerCase().trim()}</span>`
+                            ).join('');
+                            modalContentArea.innerHTML = DOMPurify.sanitize(`
+                                <div class="metrics-grid" style="margin-bottom:1rem">
+                                    <div class="metric-card"><div class="metric-value" style="color:${riskColor}">${d.velocityRisk?.toUpperCase() ?? '—'}</div><div class="metric-label">Velocity Risk</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.totalClaims ?? '—'}</div><div class="metric-label">Total Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.claimsPerYear != null ? d.claimsPerYear.toFixed(1) : '—'}</div><div class="metric-label">Claims / Year</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.averageIntervalDays != null ? d.averageIntervalDays.toFixed(0)+' days' : '—'}</div><div class="metric-label">Avg Interval</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.shortestIntervalDays != null ? d.shortestIntervalDays.toFixed(0)+' days' : '—'}</div><div class="metric-label">Shortest Interval</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.mlVelocityScore != null ? (d.mlVelocityScore*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">ML Velocity Score</div></div>
+                                </div>
+                                ${flagBadges ? `<div class="red-flags"><strong>Red Flags:</strong> ${flagBadges}</div>` : ''}
+                            `);
+                            modalOverlay.classList.add('active');
+                        } else if (result.type === 'vehicleFraudHistory') {
+                            const d = result.data;
+                            const riskColor = d.riskLevel === 'high' ? '#ef4444' : d.riskLevel === 'medium' ? '#f59e0b' : '#10b981';
+                            const flags = d.redFlags || {};
+                            const flagBadges = Object.entries(flags).filter(([,v])=>v).map(([k])=>
+                                `<span class="risk-badge high">${k.replace(/([A-Z])/g,' $1').toLowerCase().trim()}</span>`
+                            ).join('');
+                            modalContentArea.innerHTML = DOMPurify.sanitize(`
+                                <div class="metrics-grid" style="margin-bottom:1rem">
+                                    <div class="metric-card"><div class="metric-value">${d.year ?? ''} ${d.make ?? '—'}</div><div class="metric-label">Vehicle</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.vin ?? '—'}</div><div class="metric-label">VIN</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.totalClaims ?? '—'}</div><div class="metric-label">Total Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.highFraudClaims ?? '—'}</div><div class="metric-label">High-Fraud Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.averageFraudScore != null ? (d.averageFraudScore*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">Avg Fraud Score</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.mlRiskScore != null ? (d.mlRiskScore*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">ML Risk Score</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.differentOwners ?? '—'}</div><div class="metric-label">Different Owners</div></div>
+                                    <div class="metric-card"><div class="metric-value">${d.differentRepairShops ?? '—'}</div><div class="metric-label">Different Shops</div></div>
+                                    <div class="metric-card"><div class="metric-value" style="color:${riskColor}">${d.riskLevel?.toUpperCase() ?? '—'}</div><div class="metric-label">Risk Level</div></div>
+                                </div>
+                                ${flagBadges ? `<div class="red-flags" style="margin-bottom:1rem"><strong>Red Flags:</strong> ${flagBadges}</div>` : ''}
+                                <div class="view-header">${this.legendHTML()}</div>
+                                <div id="graphContainer" class="graph-container"></div>
+                            `);
+                            modalOverlay.classList.add('active');
+                            this.graph = new GraphVisualizer('graphContainer');
+                            this.graph.renderGraph(this.transformToGraphData(result.graph));
+                        } else if (result.type === 'repairShopStats') {
+                            const s = result.stats;
+                            const riskColor = s.highFraudRate > 0.5 ? '#ef4444' : s.highFraudRate > 0.3 ? '#f59e0b' : '#10b981';
+                            modalContentArea.innerHTML = DOMPurify.sanitize(`
+                                <div class="metrics-grid" style="margin-bottom:1rem">
+                                    <div class="metric-card"><div class="metric-value">${s.totalClaims ?? '—'}</div><div class="metric-label">Total Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${s.highFraudClaims ?? '—'}</div><div class="metric-label">High-Fraud Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${s.averageFraudScore != null ? (s.averageFraudScore*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">Avg Fraud Score</div></div>
+                                    <div class="metric-card"><div class="metric-value" style="color:${riskColor}">${s.highFraudRate != null ? (s.highFraudRate*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">High-Fraud Rate</div></div>
+                                    <div class="metric-card"><div class="metric-value">${s.rating != null ? Number(s.rating).toFixed(2) : '—'}</div><div class="metric-label">Rating</div></div>
+                                    <div class="metric-card"><div class="metric-value">${s.suspicious ? '⚠️ Yes' : 'No'}</div><div class="metric-label">Flagged Suspicious</div></div>
+                                </div>
+                                <div class="view-header">${this.legendHTML()}</div>
+                                <div id="graphContainer" class="graph-container"></div>
+                            `);
+                            modalOverlay.classList.add('active');
+                            this.graph = new GraphVisualizer('graphContainer');
+                            this.graph.renderGraph(this.transformToGraphData(result.graph));
+                        } else if (result.type === 'medicalProviderFraud') {
+                            const a = result.analysis;
+                            const riskColor = a.riskLevel === 'high' ? '#ef4444' : a.riskLevel === 'medium' ? '#f59e0b' : '#10b981';
+                            const ind = a.suspicionIndicators || {};
+                            const flags = Object.entries(ind).filter(([,v]) => v).map(([k]) =>
+                                `<span class="risk-badge high">${k.replace(/([A-Z])/g,' $1').toLowerCase().trim()}</span>`
+                            ).join('');
+                            modalContentArea.innerHTML = DOMPurify.sanitize(`
+                                <div class="metrics-grid" style="margin-bottom:1rem">
+                                    <div class="metric-card"><div class="metric-value">${a.totalClaims ?? '—'}</div><div class="metric-label">Total Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${a.uniqueClaimants ?? '—'}</div><div class="metric-label">Unique Claimants</div></div>
+                                    <div class="metric-card"><div class="metric-value">${a.highFraudClaims ?? '—'}</div><div class="metric-label">High-Fraud Claims</div></div>
+                                    <div class="metric-card"><div class="metric-value">${a.averageFraudScore != null ? (a.averageFraudScore*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">Avg Fraud Score</div></div>
+                                    <div class="metric-card"><div class="metric-value">${a.mlRiskScore != null ? (a.mlRiskScore*100).toFixed(1)+'%' : '—'}</div><div class="metric-label">ML Risk Score</div></div>
+                                    <div class="metric-card"><div class="metric-value">${a.networkConnections ?? '—'}</div><div class="metric-label">Network Connections</div></div>
+                                    <div class="metric-card"><div class="metric-value" style="color:${riskColor}">${a.riskLevel?.toUpperCase() ?? '—'}</div><div class="metric-label">Risk Level</div></div>
+                                </div>
+                                ${flags ? `<div class="red-flags" style="margin-bottom:1rem"><strong>Suspicion Indicators:</strong> ${flags}</div>` : ''}
+                                <div class="view-header">${this.legendHTML()}</div>
+                                <div id="graphContainer" class="graph-container"></div>
+                            `);
+                            modalOverlay.classList.add('active');
+                            this.graph = new GraphVisualizer('graphContainer');
+                            this.graph.renderGraph(this.transformToGraphData(result.graph));
+                        } else if (result.type === 'graph') {
                             modalContentArea.innerHTML = DOMPurify.sanitize(`
                                 <div class="view-header">
                                     ${this.legendHTML()}
@@ -1202,7 +1693,7 @@ class App {
                             modalOverlay.classList.add('active');
                         }
                     } catch (error) {
-                        alert(`Error: ${error.message}`);
+                        document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`&lt;div class="error"&gt;Error: ${error.message}&lt;/div&gt;`);
                     } finally {
                         viewBtn.disabled = false;
                         viewBtn.textContent = i18n.t('view');

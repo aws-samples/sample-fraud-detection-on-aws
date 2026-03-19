@@ -132,6 +132,26 @@ paths:
         '404':
           description: Claim not found
 
+  /claims/{claim_id}/graph:
+    get:
+      summary: Get claim neighborhood graph
+      operationId: getClaimGraph
+      parameters:
+        - name: claim_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Claim graph
+        '404':
+          description: Claim not found
+
   /claimants/{claimant_id}/claims:
     get:
       summary: Get claimant's claims history
@@ -204,6 +224,36 @@ paths:
         '200':
           description: Fraud analysis
 
+  /repair-shops:
+    get:
+      summary: List all repair shops
+      operationId: listRepairShops
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of repair shops
+
+  /repair-shops/{shop_id}:
+    get:
+      summary: Get repair shop details
+      operationId: getRepairShop
+      parameters:
+        - name: shop_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Repair shop details
+
   /repair-shops/{shop_id}/statistics:
     get:
       summary: Get repair shop statistics
@@ -224,8 +274,8 @@ paths:
 
   /repair-shops/fraud-hubs:
     get:
-      summary: Detect fraud hub repair shops
-      operationId: getFraudHubs
+      summary: Detect fraud hub repair shops (legacy, use /fraud-networks/hubs)
+      operationId: getFraudHubsLegacy
       x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST
@@ -233,6 +283,36 @@ paths:
       responses:
         '200':
           description: List of fraud hub shops
+
+  /vehicles:
+    get:
+      summary: List all vehicles
+      operationId: listVehicles
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of vehicles
+
+  /vehicles/{vehicle_id}:
+    get:
+      summary: Get vehicle details
+      operationId: getVehicle
+      parameters:
+        - name: vehicle_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Vehicle details
 
   /vehicles/{vehicle_id}/fraud-history:
     get:
@@ -252,6 +332,36 @@ paths:
         '200':
           description: Vehicle fraud history
 
+  /medical-providers:
+    get:
+      summary: List all medical providers
+      operationId: listMedicalProviders
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of medical providers
+
+  /medical-providers/{provider_id}:
+    get:
+      summary: Get medical provider details
+      operationId: getMedicalProvider
+      parameters:
+        - name: provider_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Medical provider details
+
   /medical-providers/{provider_id}/fraud-analysis:
     get:
       summary: Get medical provider fraud analysis (ML-powered)
@@ -269,6 +379,96 @@ paths:
       responses:
         '200':
           description: Provider fraud analysis
+
+  /claimants:
+    get:
+      summary: List all claimants
+      operationId: listClaimants
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of claimants
+
+  /claimants/{claimant_id}:
+    get:
+      summary: Get claimant details
+      operationId: getClaimant
+      parameters:
+        - name: claimant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Claimant details
+
+  /attorneys:
+    get:
+      summary: List all attorneys
+      operationId: listAttorneys
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of attorneys
+
+  /witnesses:
+    get:
+      summary: List all witnesses
+      operationId: listWitnesses
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of witnesses
+
+  /tow-companies:
+    get:
+      summary: List all tow companies
+      operationId: listTowCompanies
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of tow companies
+
+  /passengers:
+    get:
+      summary: List all passengers
+      operationId: listPassengers
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: List of passengers
+
+  /fraud-networks/hubs:
+    get:
+      summary: Identify fraud hub entities (repair shops, medical providers, attorneys)
+      operationId: getFraudHubs
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200':
+          description: Fraud hubs by entity type with collusion scores
 
   /fraud-patterns/collision-rings:
     get:

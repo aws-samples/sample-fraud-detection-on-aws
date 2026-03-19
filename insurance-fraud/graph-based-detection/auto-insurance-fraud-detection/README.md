@@ -28,7 +28,7 @@ export AWS_PROFILE=default   # Default: default
 ### What You Get
 
 After deployment completes, you'll have:
-- ✅ Fully operational fraud detection API with 22 endpoints
+- ✅ Fully operational fraud detection API with 24 endpoints
 - ✅ **Amazon Cognito authentication** - Secure JWT-based access control with httpOnly cookies
 - ✅ **Frontend web application** - Interactive fraud detection dashboard with secure token storage
 - ✅ **AWS WAF protection** - Rate limiting, OWASP Top 10, SQL injection protection
@@ -102,7 +102,7 @@ This solution uses a **modular nested stack architecture** with enterprise-grade
 - **Neptune ML** - Graph Neural Network (GNN) model for fraud prediction
 - **AWS Lambda** - 14 serverless functions for API, data population, and ML pipeline (with reserved concurrency)
 - **AWS Step Functions** - ML training pipeline orchestration
-- **Amazon API Gateway** - REST API with 22 authenticated endpoints and request validation
+- **Amazon API Gateway** - REST API with 24 authenticated endpoints and request validation
 - **AWS Batch** - Neptune data export jobs (with IAM authentication)
 - **Amazon S3** - ML training data and model storage
 - **Amazon SageMaker** - ML model training and inference endpoints
@@ -247,7 +247,7 @@ aws cloudformation update-stack \
 - AWS WAF with 5 protection rules
 - VPC with private subnets and 12 VPC endpoints
 - 14 AWS Lambda functions (with reserved concurrency and Powertools logging)
-- API Gateway with JWT authorizer, request validation, and 22 endpoints (including logout)
+- API Gateway with JWT authorizer, request validation, and 24 endpoints (including logout)
 - Step Functions ML training pipeline
 - AWS Batch for Neptune export (with IAM authentication)
 - S3 bucket for Neptune ML (with lifecycle policies)
@@ -266,7 +266,7 @@ aws cloudformation update-stack \
 - 2,000 insurance claims (40% fraudulent)
 - Variable passengers (stuffed passengers in fraud claims)
 
-## API Endpoints (22 Total)
+## API Endpoints (24 Total)
 
 All endpoints require JWT authentication via `Authorization: Bearer <token>` header.
 
@@ -295,14 +295,16 @@ All endpoints require JWT authentication via `Authorization: Bearer <token>` hea
 - `GET /fraud-networks/isolated-rings` - Find isolated fraud groups
 
 ### Analytics (4 endpoints)
-- `GET /analytics/fraud-trends` - Fraud trends over time
-- `GET /analytics/geographic-hotspots` - Geographic fraud concentration
+- `GET /analytics/fraud-trends` - Fraud summary statistics including estimated fraud exposure
+- `GET /analytics/geographic-hotspots` - Geographic fraud concentration with per-entity sub-graphs (repair shops, medical providers, attorneys, tow companies)
 - `GET /analytics/claim-amount-anomalies` - ML-powered anomaly detection
 - `GET /analytics/temporal-patterns` - Time-based fraud patterns
 
-### Entity Analysis (4 endpoints)
+### Entity Analysis (6 endpoints)
 - `GET /repair-shops/{shop_id}/statistics` - Shop fraud statistics
-- `GET /repair-shops/fraud-hubs` - Identify fraud hub shops
+- `GET /repair-shops/fraud-hubs` - Legacy alias for fraud hubs (repair shops only)
+- `GET /fraud-networks/hubs` - Identify fraud hubs across repair shops, medical providers, and attorneys
+- `GET /vehicles/{vehicle_id}` - Vehicle neighborhood graph
 - `GET /vehicles/{vehicle_id}/fraud-history` - Vehicle fraud history
 - `GET /medical-providers/{provider_id}/fraud-analysis` - Provider fraud analysis
 
@@ -321,7 +323,7 @@ The system detects 16 types of insurance fraud using graph algorithms and ML:
 **Network Fraud Patterns (7 types):**
 7. **Professional Witnesses** - Same witness in multiple unrelated claims
 8. **Organized Fraud Rings** - Densely connected fraud networks
-9. **Fraud Hub Shops** - Repair shops connecting multiple rings
+9. **Fraud Hubs** - Repair shops, medical providers, and attorneys connecting multiple fraud rings
 10. **Collusion Triangles** - Three-way fraud schemes
 11. **Isolated Rings** - Independent fraud operations
 12. **Medical Provider Fraud** - Inflated billing schemes

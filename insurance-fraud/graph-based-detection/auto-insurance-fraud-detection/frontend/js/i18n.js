@@ -34,7 +34,7 @@ const translations = {
         isolatedRings: 'Isolated Rings',
         
         // Analytics menu
-        fraudTrends: 'Fraud Trends',
+        fraudTrends: 'Fraud Summary',
         geographicHotspots: 'Geographic Hotspots',
         claimAnomalies: 'Claim Anomalies',
         temporalPatterns: 'Temporal Patterns',
@@ -95,10 +95,11 @@ const translations = {
         descCollisionRings: 'Detects organized fraud rings where claimants, witnesses, and service providers repeatedly appear together across multiple claims. These collision rings stage accidents and coordinate fraudulent claims through shared networks of repair shops, medical providers, and attorneys.',
         descProfessionalWitnesses: 'Identifies witnesses who appear in an unusually high number of claims. Professional witnesses are often paid participants in staged accidents who provide false testimony to support fraudulent claims.',
         descCollusionIndicators: 'Reveals patterns of collusion between claimants and service providers. Detects suspicious relationships where the same entities repeatedly work together, indicating coordinated fraud schemes.',
-        descFraudTrends: 'Analyzes fraud patterns over time to identify emerging trends, seasonal variations, and evolving fraud tactics. Helps predict future fraud hotspots and adapt detection strategies.',
+        descFraudTrends: 'High-level summary of fraud activity across all claims, including approval rates, fraud scores, and suspicious entities.',
         descGeographicHotspots: 'Maps geographic areas with high concentrations of fraudulent claims. Identifies regions where fraud rings operate and helps focus investigation resources on high-risk locations.',
         descClaimAnomalies: 'Detects claims with unusually high amounts that deviate from normal patterns. Fraudsters often inflate claim values to maximize payouts, creating statistical anomalies.',
         descFraudHubs: 'Identifies central entities (repair shops, medical providers, attorneys) that serve as hubs in fraud networks. These hubs connect multiple fraudulent claims and claimants, acting as coordination points for organized fraud.',
+        rationaleFraudHubs: 'A repair shop, medical provider, or attorney becomes a fraud hub when an unusually large number of claimants converge on them — especially when those claimants also share other entities (witnesses, attorneys, shops) with each other. Each box below shows one hub and the claimants connected to it. Red nodes are high-risk claimants (fraud score ≥ 70%). The collusion score measures what fraction of the hub\'s claimants share at least one other entity with another claimant in the same network — a score near 100% means nearly everyone in that hub is part of a coordinated group.',
         descInfluentialClaimants: 'Identifies claimants with high network centrality who connect to many other entities (repair shops, medical providers, attorneys). These influential nodes often indicate organized fraud rings where a central figure coordinates multiple fraudulent claims.',
         descOrganizedRings: 'Reveals collision rings where multiple claimants share the same repair shops, medical providers, witnesses, or attorneys. These organized networks coordinate staged accidents and inflated claims, with members repeatedly working together across multiple incidents.',
         descConnections: 'Maps connections between fraudsters to reveal organized fraud networks. Shows how claimants, repair shops, and service providers are linked through suspicious relationships.',
@@ -120,7 +121,7 @@ const translations = {
         rationaleCollusionIndicators: 'How it works: Finds repair shops servicing 5+ claims, then maps all claimants who used those shops. When multiple claimants repeatedly use the same repair shop, it suggests a coordinated referral scheme between the shop and the claimants.',
         rationaleOrganizedRings: 'How it works: Starting from claimants with 3+ claims, discovers communities by finding claimants who share vehicles (co-ownership) or repair shops (same shop across different claims). Each ring is a connected component — members are linked through shared resources, indicating coordinated fraud activity.',
         rationaleIsolatedRings: 'How it works: Explores the 2-hop neighborhood of a selected entity, showing all directly and indirectly connected entities. Isolated groups with no connections to the broader network may represent independent fraud cells operating under the radar.',
-        rationaleFraudHubs: 'How it works: Identifies repair shops with the highest claim volumes and maps their claimant networks. Shops that attract a disproportionate number of claims from different claimants often serve as coordination points for fraud rings.',
+        rationaleFraudHubs: 'How it works: Finds the top repair shops, medical providers, and attorneys ranked by the number of unique claimants connected to them. Each hub is scored for collusion: the proportion of its claimants who also share other entities (witnesses, attorneys, repair shops) with fellow claimants — a strong indicator of coordinated fraud. Colluding claimants appear larger in the graph.',
         rationaleFraudTrends: 'How it works: Aggregates fraud scores and claim counts over time to reveal temporal patterns. Spikes in fraud activity may correlate with seasonal events or indicate the emergence of new fraud rings.',
         rationaleGeographicHotspots: 'How it works: Groups claims by geographic location and calculates average fraud scores per area. Clusters of high-fraud claims in specific regions indicate localized fraud operations.',
         rationaleClaimAnomalies: 'How it works: Calculates the mean and standard deviation of claim amounts, then flags claims with z-scores exceeding 2 standard deviations. Uses Neptune ML to predict anomaly scores for each outlier claim.',
@@ -163,7 +164,7 @@ const translations = {
         isolatedRings: 'Anillos Aislados',
         
         // Analytics menu
-        fraudTrends: 'Tendencias de Fraude',
+        fraudTrends: 'Resumen de Fraude',
         geographicHotspots: 'Puntos Calientes Geográficos',
         claimAnomalies: 'Anomalías en Reclamos',
         temporalPatterns: 'Patrones Temporales',
@@ -228,6 +229,7 @@ const translations = {
         descGeographicHotspots: 'Mapea áreas geográficas con altas concentraciones de reclamos fraudulentos. Identifica regiones donde operan anillos de fraude y ayuda a enfocar recursos de investigación en ubicaciones de alto riesgo.',
         descClaimAnomalies: 'Detecta reclamos con montos inusualmente altos que se desvían de los patrones normales. Los estafadores a menudo inflan los valores de los reclamos para maximizar los pagos, creando anomalías estadísticas.',
         descFraudHubs: 'Identifica entidades centrales (talleres, proveedores médicos, abogados) que sirven como centros en redes de fraude. Estos centros conectan múltiples reclamos y reclamantes fraudulentos, actuando como puntos de coordinación para el fraude organizado.',
+        rationaleFraudHubs: 'Un taller, proveedor médico o abogado se convierte en un centro de fraude cuando un número inusualmente grande de reclamantes converge en ellos, especialmente cuando esos reclamantes también comparten otras entidades entre sí. Cada caja muestra un centro y los reclamantes conectados. Los nodos rojos son reclamantes de alto riesgo (puntuación ≥ 70%). La puntuación de colusión mide qué fracción de los reclamantes del centro comparte al menos otra entidad con otro reclamante del mismo grupo.',
         descInfluentialClaimants: 'Identifica reclamantes con alta centralidad de red que se conectan con muchas otras entidades (talleres, proveedores médicos, abogados). Estos nodos influyentes a menudo indican anillos de fraude organizados donde una figura central coordina múltiples reclamos fraudulentos.',
         descOrganizedRings: 'Revela anillos de colisión donde múltiples reclamantes comparten los mismos talleres, proveedores médicos, testigos o abogados. Estas redes organizadas coordinan accidentes simulados y reclamos inflados, con miembros trabajando repetidamente juntos en múltiples incidentes.',
         descConnections: 'Mapea conexiones entre estafadores para revelar redes de fraude organizadas. Muestra cómo los reclamantes, talleres y proveedores de servicios están vinculados a través de relaciones sospechosas.',
@@ -278,7 +280,7 @@ const translations = {
         isolatedRings: 'Anéis Isolados',
         
         // Analytics menu
-        fraudTrends: 'Tendências de Fraude',
+        fraudTrends: 'Resumo de Fraude',
         geographicHotspots: 'Pontos Quentes Geográficos',
         claimAnomalies: 'Anomalias em Sinistros',
         temporalPatterns: 'Padrões Temporais',
@@ -343,6 +345,7 @@ const translations = {
         descGeographicHotspots: 'Mapeia áreas geográficas com altas concentrações de sinistros fraudulentos. Identifica regiões onde anéis de fraude operam e ajuda a focar recursos de investigação em locais de alto risco.',
         descClaimAnomalies: 'Detecta sinistros com valores incomumente altos que se desviam dos padrões normais. Fraudadores frequentemente inflam valores de sinistros para maximizar pagamentos, criando anomalias estatísticas.',
         descFraudHubs: 'Identifica entidades centrais (oficinas, provedores médicos, advogados) que servem como centros em redes de fraude. Esses centros conectam múltiplos sinistros e reclamantes fraudulentos, atuando como pontos de coordenação para fraude organizada.',
+        rationaleFraudHubs: 'Uma oficina, provedor médico ou advogado torna-se um centro de fraude quando um número incomumente grande de reclamantes converge neles, especialmente quando esses reclamantes também compartilham outras entidades entre si. Cada caixa mostra um centro e os reclamantes conectados. Nós vermelhos são reclamantes de alto risco (pontuação ≥ 70%). A pontuação de conluio mede qual fração dos reclamantes do centro compartilha pelo menos outra entidade com outro reclamante do mesmo grupo.',
         descInfluentialClaimants: 'Identifica reclamantes com alta centralidade de rede que se conectam com muitas outras entidades (oficinas, provedores médicos, advogados). Esses nós influentes frequentemente indicam anéis de fraude organizados onde uma figura central coordena múltiplos sinistros fraudulentos.',
         descOrganizedRings: 'Revela anéis de colisão onde múltiplos reclamantes compartilham as mesmas oficinas, provedores médicos, testemunhas ou advogados. Essas redes organizadas coordenam acidentes simulados e sinistros inflados, com membros trabalhando repetidamente juntos em múltiplos incidentes.',
         descConnections: 'Mapeia conexões entre fraudadores para revelar redes de fraude organizadas. Mostra como reclamantes, oficinas e provedores de serviços estão vinculados através de relacionamentos suspeitos.',

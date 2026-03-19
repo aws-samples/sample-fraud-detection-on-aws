@@ -28,7 +28,7 @@ export AWS_PROFILE=default   # Por defecto: default
 ### Lo Que Obtienes
 
 Después de completar el despliegue, tendrás:
-- ✅ API de detección de fraude completamente operativa con 22 endpoints
+- ✅ API de detección de fraude completamente operativa con 24 endpoints
 - ✅ **Autenticación Cognito** - Control de acceso seguro basado en JWT con cookies httpOnly
 - ✅ **Aplicación web frontend** - Panel interactivo de detección de fraude con almacenamiento seguro de tokens
 - ✅ **Protección WAF** - Limitación de tasa, OWASP Top 10, protección contra inyección SQL
@@ -104,7 +104,7 @@ Esta solución usa una **arquitectura modular de stacks anidados** con seguridad
 - **Neptune ML** - Modelo de Red Neuronal de Grafos (GNN) para predicción de fraude
 - **AWS Lambda** - 14 funciones serverless para API, población de datos y pipeline ML (con concurrencia reservada)
 - **AWS Step Functions** - Orquestación del pipeline de entrenamiento ML
-- **Amazon API Gateway** - API REST con 22 endpoints autenticados y validación de solicitudes
+- **Amazon API Gateway** - API REST con 24 endpoints autenticados y validación de solicitudes
 - **AWS Batch** - Trabajos de exportación de datos de Neptune (con autenticación IAM)
 - **Amazon S3** - Almacenamiento de datos de entrenamiento ML y modelos
 - **Amazon SageMaker** - Entrenamiento de modelos ML y endpoints de inferencia
@@ -249,7 +249,7 @@ aws cloudformation update-stack \
 - AWS WAF con 5 reglas de protección
 - VPC con subredes privadas y 12 endpoints VPC
 - 14 funciones AWS Lambda (con concurrencia reservada y registro Powertools)
-- API Gateway con autorizador JWT, validación de solicitudes y 22 endpoints (incluyendo logout)
+- API Gateway con autorizador JWT, validación de solicitudes y 24 endpoints (incluyendo logout)
 - Pipeline de entrenamiento ML con Step Functions
 - AWS Batch para exportación de Neptune (con autenticación IAM)
 - Bucket S3 para Neptune ML (con políticas de ciclo de vida)
@@ -304,7 +304,9 @@ Todos los endpoints requieren autenticación JWT vía encabezado `Authorization:
 
 ### Análisis de Entidades (3 endpoints)
 - `GET /repair-shops/{shop_id}/statistics` - Estadísticas de fraude del taller
-- `GET /repair-shops/fraud-hubs` - Identificar talleres centro de fraude
+- `GET /repair-shops/fraud-hubs` - Alias heredado para centros de fraude (solo talleres)
+- `GET /fraud-networks/hubs` - Identificar centros de fraude en talleres, proveedores médicos y abogados
+- `GET /vehicles/{vehicle_id}` - Grafo de vecindad del vehículo
 - `GET /vehicles/{vehicle_id}/fraud-history` - Historial de fraude del vehículo
 - `GET /medical-providers/{provider_id}/fraud-analysis` - Análisis de fraude del proveedor
 

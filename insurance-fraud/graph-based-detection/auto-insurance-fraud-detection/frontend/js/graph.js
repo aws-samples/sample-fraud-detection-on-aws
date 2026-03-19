@@ -140,15 +140,31 @@ class GraphVisualizer {
                 .on('drag', (event, d) => this.dragged(event, d))
                 .on('end', (event, d) => this.dragEnded(event, d)));
 
+        // Add label backgrounds for readability
+        const labelBg = g.append('g')
+            .selectAll('text')
+            .data(data.nodes)
+            .enter().append('text')
+            .text(d => d.name ? `${d.label}: ${d.name}` : d.label || d.id)
+            .attr('font-size', 10)
+            .attr('dx', 12)
+            .attr('dy', 4)
+            .attr('stroke', 'white')
+            .attr('stroke-width', 3)
+            .attr('stroke-linejoin', 'round')
+            .attr('paint-order', 'stroke')
+            .style('pointer-events', 'none');
+
         // Add labels
         const label = g.append('g')
             .selectAll('text')
             .data(data.nodes)
             .enter().append('text')
-            .text(d => d.label || d.id)
+            .text(d => d.name ? `${d.label}: ${d.name}` : d.label || d.id)
             .attr('font-size', 10)
             .attr('dx', 12)
-            .attr('dy', 4);
+            .attr('dy', 4)
+            .style('pointer-events', 'none');
 
         // Update positions on tick
         this.simulation.on('tick', () => {
@@ -161,6 +177,10 @@ class GraphVisualizer {
                 .attr('y1', d => d.source.y)
                 .attr('x2', d => d.target.x)
                 .attr('y2', d => d.target.y);
+
+            labelBg
+                .attr('x', d => d.x)
+                .attr('y', d => d.y);
 
             label
                 .attr('x', d => d.x)

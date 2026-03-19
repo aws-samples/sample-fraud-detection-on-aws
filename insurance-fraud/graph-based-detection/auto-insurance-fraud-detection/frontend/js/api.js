@@ -83,6 +83,10 @@ class APIClient {
         return this.request(`/claims/${claimId}`);
     }
 
+    async getClaimGraph(claimId) {
+        return this.request(`/claims/${claimId}/graph`);
+    }
+
     async getClaimantClaims(claimantId) {
         return this.request(`/claimants/${claimantId}/claims`);
     }
@@ -125,7 +129,10 @@ class APIClient {
         return this.request('/fraud-networks/organized-rings');
     }
 
-    async getConnections() {
+    async getConnections(sourceId, targetId) {
+        if (sourceId && targetId) {
+            return this.request(`/fraud-networks/connections?source=${sourceId}&target=${targetId}`);
+        }
         return this.request('/fraud-networks/connections');
     }
 
@@ -160,11 +167,15 @@ class APIClient {
     }
 
     async getFraudHubs() {
-        return this.request('/repair-shops/fraud-hubs');
+        return this.request('/fraud-networks/hubs');
     }
 
     async getVehicleFraudHistory(vehicleId) {
         return this.request(`/vehicles/${vehicleId}/fraud-history`);
+    }
+
+    async getVehicleNetwork(vehicleId) {
+        return this.request(`/vehicles/${vehicleId}`);
     }
 
     async getMedicalProviderFraudAnalysis(providerId) {

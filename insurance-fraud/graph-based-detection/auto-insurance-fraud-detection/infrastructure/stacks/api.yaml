@@ -848,6 +848,45 @@ Resources:
       ParentId: !Ref VehiclesResource
       PathPart: '{vehicle_id}'
 
+  VehicleIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ResourceId: !Ref VehicleIdResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FraudDetectionFunctionArn}/invocations'
+
+  VehicleIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ResourceId: !Ref VehicleIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Request-Timestamp,X-Request-Signature'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              method.response.header.Access-Control-Allow-Credentials: "'true'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Credentials: true
+
   # /vehicles/{vehicle_id}/fraud-history
   VehicleFraudHistoryResource:
     Type: AWS::ApiGateway::Resource
@@ -1585,6 +1624,53 @@ Resources:
             method.response.header.Access-Control-Allow-Origin: true
             method.response.header.Access-Control-Allow-Credentials: true
 
+  # /fraud-networks/hubs
+  FraudNetworksHubsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ParentId: !Ref FraudNetworksResource
+      PathPart: hubs
+
+  FraudNetworksHubsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ResourceId: !Ref FraudNetworksHubsResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FraudDetectionFunctionArn}/invocations'
+
+  FraudNetworksHubsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ResourceId: !Ref FraudNetworksHubsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Request-Timestamp,X-Request-Signature'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              method.response.header.Access-Control-Allow-Credentials: "'true'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Credentials: true
+
   # /isolated-rings (root level for entity-specific queries)
   IsolatedRingsRootResource:
     Type: AWS::ApiGateway::Resource
@@ -1932,6 +2018,10 @@ Resources:
       - ConnectionsOptionsMethod
       - IsolatedRingsMethod
       - IsolatedRingsOptionsMethod
+      - FraudNetworksHubsMethod
+      - FraudNetworksHubsOptionsMethod
+      - VehicleIdMethod
+      - VehicleIdOptionsMethod
       - FraudTrendsMethod
       - FraudTrendsOptionsMethod
       - GeographicHotspotsMethod
