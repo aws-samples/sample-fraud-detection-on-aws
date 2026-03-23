@@ -45,19 +45,17 @@
         const languageSelector = document.getElementById('languageSelector');
         languageSelector.value = i18n.currentLang;
         i18n.updateUI();
-        
-        // Update placeholders
-        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-            const key = el.getAttribute('data-i18n-placeholder');
-            el.placeholder = i18n.t(key);
-        });
-        
+
+        function updateLoginPageI18n() {
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                el.placeholder = i18n.t(el.getAttribute('data-i18n-placeholder'));
+            });
+        }
+        updateLoginPageI18n();
+
         languageSelector.addEventListener('change', (e) => {
             i18n.setLanguage(e.target.value);
-            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-                const key = el.getAttribute('data-i18n-placeholder');
-                el.placeholder = i18n.t(key);
-            });
+            updateLoginPageI18n();
         });
 
         const usernameInput = document.getElementById('username');
