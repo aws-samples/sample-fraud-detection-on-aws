@@ -128,7 +128,7 @@ const translations = {
         rationaleConnections: 'How it works: Maps the direct connections between a selected claimant and all entities in their network — claims, repair shops, witnesses, vehicles, and more. Reveals the full scope of a claimant\'s involvement.',
         rationaleCrossClaimPatterns: 'How it works: Examines a claimant\'s neighborhood to find entities that appear across multiple claims. Shared repair shops, witnesses, or attorneys across different claims suggest coordinated activity.',
         rationaleTemporalPatterns: 'How it works: Analyzes the time intervals between a claimant\'s claims. Short intervals, regular patterns, or clustering around specific dates indicate systematic fraud rather than genuine incidents.',
-        openSourceNote: 'This is an open-source sample. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection" target="_blank" rel="noopener">Download it on GitHub</a>.'
+        openSourceNote: 'This is an open-source sample. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection/auto-insurance-fraud-detection" target="_blank" rel="noopener">Download it on GitHub</a>.'
     },
     es: {
         // Header & Navigation
@@ -245,7 +245,7 @@ const translations = {
         descRepairShopStats: 'Muestra estadísticas relacionadas con fraude para un taller específico, incluyendo su red de reclamantes, volumen de reclamos y conexiones con anillos de fraude conocidos.',
         descVehicleFraudHistory: 'Muestra el historial completo de fraude de un vehículo específico, incluyendo todos los reclamos presentados, accidentes reportados y conexiones con entidades sospechosas.',
         descMedicalProviderFraud: 'Analiza la participación de un proveedor médico en posible fraude examinando su red de pacientes, reclamos y patrones de facturación en busca de actividad sospechosa.',
-        openSourceNote: 'Este es un ejemplo de código abierto. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection" target="_blank" rel="noopener">Descárgalo en GitHub</a>.'
+        openSourceNote: 'Este es un ejemplo de código abierto. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection/auto-insurance-fraud-detection" target="_blank" rel="noopener">Descárgalo en GitHub</a>.'
     },
     pt: {
         // Header & Navigation
@@ -362,7 +362,7 @@ const translations = {
         descRepairShopStats: 'Exibe estatísticas relacionadas a fraude para uma oficina específica, incluindo sua rede de reclamantes, volume de sinistros e conexões com anéis de fraude conhecidos.',
         descVehicleFraudHistory: 'Mostra o histórico completo de fraude de um veículo específico, incluindo todos os sinistros registrados, acidentes reportados e conexões com entidades suspeitas.',
         descMedicalProviderFraud: 'Analisa o envolvimento de um provedor médico em potencial fraude examinando sua rede de pacientes, sinistros e padrões de faturamento em busca de atividade suspeita.',
-        openSourceNote: 'Este é um exemplo de código aberto. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection" target="_blank" rel="noopener">Baixe no GitHub</a>.'
+        openSourceNote: 'Este é um exemplo de código aberto. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection/auto-insurance-fraud-detection" target="_blank" rel="noopener">Baixe no GitHub</a>.'
     }
 };
 
