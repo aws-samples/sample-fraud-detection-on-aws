@@ -42,24 +42,11 @@ After deployment completes, you'll have:
 - ✅ AWS Step Functions ML training pipeline
 - ✅ **Zero internet access from VPC** - All traffic via VPC endpoints
 
-All API endpoints require authentication. Create a user in Amazon Cognito:
+All API endpoints require authentication. Use the `authenticate.sh` script to create a user and get a token:
 
 ```bash
-# Create user
-aws cognito-idp admin-create-user \
-  --user-pool-id <USER_POOL_ID> \
-  --username user@company.com \
-  --message-action SUPPRESS
-
-# Set permanent password
-aws cognito-idp admin-set-user-password \
-  --user-pool-id <USER_POOL_ID> \
-  --username user@company.com \
-  --password YourPassword123! \
-  --permanent
+./scripts/authenticate.sh -u user@company.com -p YourPassword123!
 ```
-
-Or use the frontend login page at `frontend/login.html`.
 
 # Call API with token
 curl -H "Authorization: Bearer $AUTH_TOKEN" \

@@ -44,24 +44,11 @@ Después de completar el despliegue, tendrás:
 
 ### Autenticación Requerida
 
-Todos los endpoints de la API requieren autenticación. Cree un usuario en Cognito:
+Todos los endpoints de la API requieren autenticación. Use el script `authenticate.sh` para crear un usuario y obtener un token:
 
 ```bash
-# Crear usuario
-aws cognito-idp admin-create-user \
-  --user-pool-id <USER_POOL_ID> \
-  --username usuario@empresa.com \
-  --message-action SUPPRESS
-
-# Establecer contraseña permanente
-aws cognito-idp admin-set-user-password \
-  --user-pool-id <USER_POOL_ID> \
-  --username usuario@empresa.com \
-  --password TuContraseña123! \
-  --permanent
+./scripts/authenticate.sh -u usuario@empresa.com -p TuContraseña123!
 ```
-
-O use la página de inicio de sesión del frontend en `frontend/login.html`.
 
 # Llamar a la API con el token
 curl -H "Authorization: Bearer $AUTH_TOKEN" \

@@ -44,24 +44,11 @@ Após a conclusão da implantação, você terá:
 
 ### Autenticação Obrigatória
 
-Todos os endpoints da API requerem autenticação. Crie um usuário no Cognito:
+Todos os endpoints da API requerem autenticação. Use o script `authenticate.sh` para criar um usuário e obter um token:
 
 ```bash
-# Criar usuário
-aws cognito-idp admin-create-user \
-  --user-pool-id <USER_POOL_ID> \
-  --username usuario@empresa.com \
-  --message-action SUPPRESS
-
-# Definir senha permanente
-aws cognito-idp admin-set-user-password \
-  --user-pool-id <USER_POOL_ID> \
-  --username usuario@empresa.com \
-  --password SuaSenha123! \
-  --permanent
+./scripts/authenticate.sh -u usuario@empresa.com -p SuaSenha123!
 ```
-
-Ou use a página de login do frontend em `frontend/login.html`.
 
 # Chamar API com o token
 curl -H "Authorization: Bearer $AUTH_TOKEN" \
