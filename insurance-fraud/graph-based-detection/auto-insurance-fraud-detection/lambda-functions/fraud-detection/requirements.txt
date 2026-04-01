@@ -1,4 +1,4 @@
 gremlinpython==3.8.0
 aws-lambda-powertools==3.24.0
 aws-xray-sdk==2.15.0
-aiohttp==3.13.3
+aiohttp==3.13.4
