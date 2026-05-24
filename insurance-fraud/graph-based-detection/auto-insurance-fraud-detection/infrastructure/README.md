@@ -11,14 +11,14 @@ infrastructure/
 │   ├── helpers.yaml             # S3 prefix list lookup custom resource
 │   ├── network.yaml             # VPC, subnets, NAT gateway, IGW
 │   ├── security-groups.yaml     # All security groups with inline rules
-│   ├── vpc-endpoints.yaml       # Interface VPC endpoints for AWS services (9 endpoints)
+│   ├── vpc-endpoints.yaml       # VPC endpoints for AWS services (12 endpoints: 11 interface + 1 gateway)
 │   ├── iam.yaml                 # IAM roles and policies
 │   ├── cognito.yaml             # Cognito User Pool for authentication
 │   ├── waf.yaml                 # WAF with rate limiting and OWASP rules
 │   ├── storage.yaml             # S3 bucket and Neptune cluster (with IAM auth)
 │   ├── batch.yaml               # AWS Batch for Neptune export (with IAM auth)
-│   ├── lambda.yaml              # All Lambda functions (14 total, with reserved concurrency)
-│   ├── api.yaml                 # API Gateway with routes (22 endpoints, request validation)
+│   ├── lambda.yaml              # All Lambda functions (16 total, with reserved concurrency)
+│   ├── api.yaml                 # API Gateway with routes (44 endpoints, request validation)
 │   ├── frontend.yaml            # CloudFront distribution (with security headers)
 │   └── ml-pipeline.yaml         # Step Functions ML training pipeline
 └── api-specs/
@@ -70,8 +70,8 @@ main.yaml
 ├── WAFStack (no dependencies)
 ├── StorageStack (depends on: Network, SecurityGroups, IAM) - Neptune with IAM auth
 ├── BatchStack (depends on: Network, SecurityGroups, IAM) - Export with IAM auth
-├── LambdaStack (depends on: Network, SecurityGroups, IAM, Storage, Batch) - 14 functions with reserved concurrency
-├── APIStack (depends on: Lambda, Cognito, WAF) - 22 endpoints with request validation
+├── LambdaStack (depends on: Network, SecurityGroups, IAM, Storage, Batch) - 16 functions with reserved concurrency
+├── APIStack (depends on: Lambda, Cognito, WAF) - 44 endpoints with request validation
 ├── FrontendStack (depends on: API) - CloudFront with security headers
 └── MLPipelineStack (depends on: IAM, Lambda, Storage)
 ```

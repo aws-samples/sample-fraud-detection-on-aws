@@ -1,9 +1,28 @@
-// Authentication module - sessionStorage token storage with httpOnly cookie backup
+// Authentication module — cookie-only mode.
+//
+// Security model:
+//   • The actual JWT lives in an httpOnly, Secure, SameSite=None cookie
+//     named `__Host-fraud_detection_token` set by the backend /auth/login handler.
+//     The `__Host-` prefix is browser-enforced: the cookie is only accepted
+//     when Secure + Path=/ + no Domain attribute are all set, which guards
+//     against accidental relaxation of those security attributes.
+//   • JavaScript cannot read that cookie (that's the whole point — XSS
+//     protection against token theft).
+//   • The browser auto-forwards the cookie on every `fetch()` that uses
+//     `credentials: 'include'`.
+//   • We keep only non-sensitive metadata in sessionStorage — specifically
+//     the username and the token expiry timestamp — so the UI can show the
+//     logged-in user and proactively refresh before the cookie goes stale.
+//   • The refresh token is still returned in the JSON body on login and is
+//     kept in sessionStorage; it's a lower-value credential (usable only
+//     via the /auth/refresh endpoint) and we need JS access to it to drive
+//     the refresh timer. A future hardening pass could move this to a
+//     second httpOnly cookie with Path=/auth/refresh.
 class Auth {
     constructor() {
-        this.tokenKey = 'fraud_detection_token';
-        this.refreshTokenKey = 'fraud_detection_refresh_token';
         this.userKey = 'fraud_detection_user';
+        this.expiryKey = 'fraud_detection_token_expiry';
+        this.refreshTokenKey = 'fraud_detection_refresh_token';
         this._refreshTimer = null;
     }
 
@@ -21,8 +40,13 @@ class Auth {
             const data = await response.json();
 
             if (response.ok && data.token) {
-                sessionStorage.setItem(this.tokenKey, data.token);
+                // Do NOT persist data.token anywhere JS-accessible — the
+                // httpOnly cookie does the work. Persist only the expiry
+                // (epoch seconds) so we can proactively refresh, and the
+                // refresh token so we can actually do it.
                 sessionStorage.setItem(this.userKey, username);
+                const expiresAt = Math.floor(Date.now() / 1000) + (data.expiresIn || 3600);
+                sessionStorage.setItem(this.expiryKey, String(expiresAt));
                 if (data.refreshToken) {
                     sessionStorage.setItem(this.refreshTokenKey, data.refreshToken);
                 }
@@ -38,17 +62,12 @@ class Auth {
 
     _scheduleRefresh() {
         if (this._refreshTimer) clearTimeout(this._refreshTimer);
-        const token = this.getToken();
-        if (!token) return;
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const expiresMs = payload.exp * 1000;
-            // Refresh 2 minutes before expiry
-            const refreshIn = expiresMs - Date.now() - 120000;
-            if (refreshIn > 0) {
-                this._refreshTimer = setTimeout(() => this._doRefresh(), refreshIn);
-            }
-        } catch (e) { /* ignore */ }
+        const expiresAt = parseInt(sessionStorage.getItem(this.expiryKey) || '0', 10);
+        if (!expiresAt) return;
+        const refreshIn = (expiresAt * 1000) - Date.now() - 120000;  // 2 min before
+        if (refreshIn > 0) {
+            this._refreshTimer = setTimeout(() => this._doRefresh(), refreshIn);
+        }
     }
 
     async _doRefresh() {
@@ -63,7 +82,10 @@ class Auth {
             });
             const data = await response.json();
             if (response.ok && data.token) {
-                sessionStorage.setItem(this.tokenKey, data.token);
+                // The new token is sent by the backend as a fresh Set-Cookie
+                // header. We only track the new expiry.
+                const expiresAt = Math.floor(Date.now() / 1000) + (data.expiresIn || 3600);
+                sessionStorage.setItem(this.expiryKey, String(expiresAt));
                 this._scheduleRefresh();
                 return true;
             }
@@ -77,27 +99,22 @@ class Auth {
         return this._doRefresh();
     }
 
-    getToken() {
-        return sessionStorage.getItem(this.tokenKey);
-    }
-
     getUser() {
         return sessionStorage.getItem(this.userKey);
     }
 
     isAuthenticated() {
-        const token = this.getToken();
-        if (!token) return false;
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            if (payload.exp && payload.exp * 1000 < Date.now()) {
-                this.logout();
-                return false;
-            }
-            return true;
-        } catch (e) {
+        // With cookie-based auth we can't directly inspect the cookie from
+        // JS. We rely on the expiry timestamp we recorded at login/refresh
+        // time. If the timer says we're still inside the window, assume yes;
+        // if not, the next API call will return 401 and the flow will
+        // trigger a refresh.
+        const expiresAt = parseInt(sessionStorage.getItem(this.expiryKey) || '0', 10);
+        if (!expiresAt) return false;
+        if (Date.now() >= expiresAt * 1000) {
             return false;
         }
+        return true;
     }
 
     async logout() {
@@ -110,9 +127,9 @@ class Auth {
         } catch (error) {
             console.error('Logout error:', error);
         }
-        sessionStorage.removeItem(this.tokenKey);
-        sessionStorage.removeItem(this.refreshTokenKey);
         sessionStorage.removeItem(this.userKey);
+        sessionStorage.removeItem(this.expiryKey);
+        sessionStorage.removeItem(this.refreshTokenKey);
         window.location.href = 'login.html';
     }
 }

@@ -16,13 +16,18 @@ fi
 
 echo "Fetching CloudFormation outputs..."
 
-# Get stack outputs
-API_ENDPOINT=$(aws cloudformation describe-stacks \
+# The frontend calls the API through CloudFront (see /prod/* behavior in
+# frontend.yaml) so that frontend + API share an origin, keeping the httpOnly
+# auth cookie same-site (required with modern third-party cookie blocking).
+CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
     --region "$REGION" \
     --profile "$PROFILE" \
-    --query 'Stacks[0].Outputs[?OutputKey==`APIEndpoint`].OutputValue' \
+    --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL`].OutputValue' \
     --output text)
+
+# API endpoint the BROWSER uses — proxied through CloudFront
+API_ENDPOINT="${CLOUDFRONT_URL}/prod"
 
 USER_POOL_ID=$(aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \

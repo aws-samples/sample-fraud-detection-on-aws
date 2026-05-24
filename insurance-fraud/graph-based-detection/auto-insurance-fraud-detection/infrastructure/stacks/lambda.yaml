@@ -123,6 +123,27 @@ Resources:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: !Sub 'lambda-code/${LambdaCodeVersion}/fraud-detection.zip'
 
+  # Published version + alias with provisioned concurrency so the fraud-detection
+  # Lambda has no cold-start latency during interactive demos. API Gateway is
+  # pointed at the alias ARN (see FraudDetectionFunctionArn output below), so
+  # integrations transparently invoke the warm version. Note: AWS::Lambda::Version
+  # is immutable per logical ID — a clean undeploy/redeploy produces a fresh v1.
+  # If iterating on code without a redeploy, bump the Version logical ID.
+  FraudDetectionFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref FraudDetectionFunction
+      Description: !Sub 'Version for provisioned concurrency (code ${LambdaCodeVersion})'
+
+  FraudDetectionFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref FraudDetectionFunction
+      FunctionVersion: !GetAtt FraudDetectionFunctionVersion.Version
+      Name: live
+      ProvisionedConcurrencyConfig:
+        ProvisionedConcurrentExecutions: 1
+
   AuthenticateUserFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -146,6 +167,32 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: !Sub 'lambda-code/${LambdaCodeVersion}/authenticate-user.zip'
+
+  # Custom REQUEST authorizer that validates the __Host-fraud_detection_token cookie
+  # (set httpOnly by the authenticate-user Lambda). Replaces the former
+  # Cognito-native authorizer on API Gateway so the frontend no longer needs
+  # to read the JWT from JS-accessible sessionStorage — XSS-hardening measure.
+  JwtCookieAuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      # Pinned to python3.12 because the `cryptography` wheel dependency of
+      # PyJWT[crypto] only ships abi3 wheels compatible with CPython 3.12.
+      # The `pip install` step in deploy.sh targets this same version.
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 10
+      MemorySize: 256
+      ReservedConcurrentExecutions: 50
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          COOKIE_NAME: __Host-fraud_detection_token
+          LOG_LEVEL: INFO
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub 'lambda-code/${LambdaCodeVersion}/jwt-cookie-authorizer.zip'
 
   RequestQuotasFunction:
     Type: AWS::Lambda::Function
@@ -471,7 +518,11 @@ Outputs:
     Value: !Ref PopulateGraphFunction
   
   FraudDetectionFunctionArn:
-    Value: !GetAtt FraudDetectionFunction.Arn
+    # Export the ALIAS ARN (not the function ARN) so API Gateway and Lambda
+    # permissions target the provisioned-concurrency-enabled alias. Alias ARNs
+    # have the form function:name:aliasname and are valid in every place the
+    # function ARN would be accepted.
+    Value: !Ref FraudDetectionFunctionAlias
     Export:
       Name: !Sub '${AWS::StackName}-FraudDetectionFunctionArn'
   
@@ -479,6 +530,11 @@ Outputs:
     Value: !GetAtt AuthenticateUserFunction.Arn
     Export:
       Name: !Sub '${AWS::StackName}-AuthenticateUserFunctionArn'
+
+  JwtCookieAuthorizerFunctionArn:
+    Value: !GetAtt JwtCookieAuthorizerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-JwtCookieAuthorizerFunctionArn'
   
   RequestQuotasFunctionArn:
     Value: !GetAtt RequestQuotasFunction.Arn

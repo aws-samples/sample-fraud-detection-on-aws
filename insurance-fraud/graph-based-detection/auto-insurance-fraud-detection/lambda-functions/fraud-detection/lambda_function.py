@@ -119,6 +119,19 @@ def get_neptune_connection():
     )
     g = traversal().withRemote(remoteConn)
 
+    # Enable Neptune Result Cache on all queries originating from this traversal
+    # source. Requires neptune_result_cache=1 at the cluster parameter group.
+    # Hint name per AWS docs:
+    # https://docs.aws.amazon.com/neptune/latest/userguide/gremlin-query-hints-results-cache.html
+    #   g.with('Neptune#enableResultCache', true).V()...
+    # Writes (e.g. POST /claims) automatically bypass and invalidate the cache,
+    # so setting it globally is safe.
+    if os.environ.get('NEPTUNE_CACHE_ENABLED', 'true').lower() == 'true':
+        try:
+            g = g.with_('Neptune#enableResultCache', True)
+        except Exception as e:
+            logger.warning(f"Could not attach Neptune#enableResultCache hint: {e}")
+
     _connection_cache = {'conn': remoteConn, 'g': g, 'expires': now + 240}
     return g, remoteConn
 
@@ -166,18 +179,41 @@ def _build_neighborhood_graph(g, center_id, center_type):
     """Build a 1-hop neighborhood graph for any entity. Reused by multiple endpoints."""
     nodes = []
     edges = []
+    node_ids = set()
 
-    vertex = g.V(center_id).valueMap(True).next()
+    center_vertex = g.V(center_id).valueMap(True).next()
     nodes.append({
-        'id': str(vertex.get(T.id)), 'name': _prop(vertex, 'name'),
+        'id': str(center_vertex.get(T.id)), 'name': _prop(center_vertex, 'name'),
         'label': get_node_label(center_type),
         'type': center_type,
         'fraudScore': _get_fraud_score(g, center_id)
     })
+    node_ids.add(str(center_id))
 
-    neighbors = g.V(center_id).both().not_(__.hasLabel('fraudEntity')).hasNot('fraudScore').dedup().valueMap(True).toList()
-    for neighbor in neighbors:
-        neighbor_id = str(neighbor.get(T.id))
+    # Walk edges (excluding fraudEntity-related) so we can surface real edge types
+    edge_paths = (g.V(center_id).bothE()
+                  .not_(__.hasLabel('has_fraud_score'))
+                  .where(__.otherV().not_(__.hasLabel('fraudEntity')).hasNot('fraudScore'))
+                  .project('source', 'target', 'label')
+                  .by(__.outV().id_())
+                  .by(__.inV().id_())
+                  .by(__.label())
+                  .toList())
+
+    neighbor_ids = set()
+    for ep in edge_paths:
+        source = str(ep['source'])
+        target = str(ep['target'])
+        edge_label = ep['label']
+        neighbor_id = target if source == str(center_id) else source
+        neighbor_ids.add(neighbor_id)
+        edges.append({'source': source, 'target': target, 'type': edge_label})
+
+    for neighbor_id in neighbor_ids:
+        try:
+            neighbor = g.V(neighbor_id).valueMap(True).next()
+        except Exception:
+            continue
         neighbor_label = neighbor.get(T.label)
         if isinstance(neighbor_label, list):
             neighbor_label = next((l for l in neighbor_label if l != 'fraudEntity'), neighbor_label[0])
@@ -189,7 +225,6 @@ def _build_neighborhood_graph(g, center_id, center_type):
             'type': neighbor_type,
             'fraudScore': _get_fraud_score(g, neighbor_id)
         })
-        edges.append({'source': str(center_id), 'target': neighbor_id})
 
     return {'nodes': nodes, 'edges': edges}
 
@@ -546,6 +581,9 @@ def get_claimant_risk_score(claimant_id: str):
             'claimantId': claimant_id,
             'riskScore': 0.0,
             'totalClaims': 0,
+            'rejectedClaims': 0,
+            'rejectionRate': 0.0,
+            'totalClaimAmount': 0.0,
             'message': 'No claims history'
         }
 
@@ -569,7 +607,7 @@ def get_claimant_risk_score(claimant_id: str):
         'totalClaimAmount': _trunc(total_amount)
     }
 
-@app.get("/repair-shops/<shop_id>/statistics")
+@app.get("/entity-lookup/repair-shops/<shop_id>/statistics")
 @tracer.capture_method
 def get_repair_shop_statistics(shop_id: str):
     """
@@ -614,7 +652,7 @@ def get_repair_shop_statistics(shop_id: str):
         'highFraudRate': _trunc(high_fraud_claims / len(claims))
     }
 
-@app.get("/repair-shops/<shop_id>")
+@app.get("/entity-lookup/repair-shops/<shop_id>")
 @tracer.capture_method
 def get_repair_shop_network(shop_id: str):
     """Get repair shop's one-level neighborhood network graph"""
@@ -622,171 +660,631 @@ def get_repair_shop_network(shop_id: str):
     
     return _build_neighborhood_graph(g, shop_id, 'repairShop')
 
-@app.get("/fraud-patterns/collision-rings")
+# -----------------------------------------------------------------------------
+# Collision Ring sub-patterns (6 endpoints, one per sub-pattern)
+# -----------------------------------------------------------------------------
+
+def _cr_node(g, vertex, vtype, name_key='name', size=10, extra=None):
+    """Helper: build a graph node dict from a valueMap vertex result."""
+    node = {
+        'id': str(vertex.get(T.id)),
+        'label': get_node_label(vtype),
+        'name': _prop(vertex, name_key),
+        'type': vtype,
+        'fraudScore': _get_fraud_score(g, str(vertex.get(T.id))),
+        'size': size,
+    }
+    if extra:
+        node.update(extra)
+    return node
+
+
+@app.get("/collision-rings/staged-accidents")
 @tracer.capture_method
-def detect_collision_rings():
+def detect_staged_accidents():
     """
-    Detect comprehensive collision ring fraud patterns - returns actual network graph
+    Staged accidents: claimants whose STAGED Accidents (maneuverType != 'normal'
+    or policeVerified = false) share a Vehicle, Witness, or RepairShop with
+    another claimant's staged accident. Only staged accidents are returned —
+    every Accident node in the response is part of the ring.
     """
     g, remoteConn = get_neptune_connection()
-    
-    nodes = []
-    edges = []
-    node_ids = set()
+    nodes, edges, node_ids, edge_keys = [], [], set(), set()
 
-    # Get claimants with multiple claims (potential fraud ring members)
-    claimants = g.V().hasLabel('claimant').where(
-        __.out('filed_claim').count().is_(P.gte(2))
-    ).limit(10).valueMap(True).toList()
+    def add_node_dict(node_id, node_dict):
+        if node_id not in node_ids:
+            node_ids.add(node_id)
+            nodes.append(node_dict)
 
-    for c in claimants:
-        c_id = str(c.get(T.id))
-        if c_id not in node_ids:
-            node_ids.add(c_id)
-            nodes.append({
-                'id': c_id,
-                'label': get_node_label('claimant'),
-                'name': _prop(c, 'name'),
-                'type': 'claimant',
-                'fraudScore': _get_fraud_score(g, c_id),
-                'size': 12
+    def add_node(node_id, vertex, vtype, size=10):
+        if node_id not in node_ids:
+            node_ids.add(node_id)
+            nodes.append(_cr_node(g, vertex, vtype, size=size))
+
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
+    def build_accident_node(acc_vmap):
+        acc_id = str(acc_vmap.get(T.id))
+        maneuver = _prop(acc_vmap, 'maneuverType', 'normal')
+        police_verified = _prop(acc_vmap, 'policeVerified', True)
+        # Fraud score coloring based on staging signals
+        score = 0.9 if maneuver != 'normal' else (0.6 if not police_verified else 0.1)
+        return {
+            'id': acc_id,
+            'label': get_node_label('accident'),
+            'type': 'accident',
+            'maneuverType': maneuver,
+            'policeVerified': police_verified,
+            'staged': True,  # we only emit staged accidents here
+            'fraudScore': score,
+            'size': 10,
+        }
+
+    def build_claim_node(cl_vmap):
+        cl_id = str(cl_vmap.get(T.id))
+        amount = _prop(cl_vmap, 'amount', 0)
+        return cl_id, {
+            'id': cl_id, 'label': f"${amount:.0f}", 'type': 'claim',
+            'fraudScore': _get_fraud_score(g, cl_id), 'size': 8,
+        }
+
+    # Three pivot strategies: claimants share a Vehicle, Witness, or RepairShop
+    # across their staged accidents.
+    PIVOT_QUERIES = [
+        ('shop',    ['filed_claim', 'repaired_at'],                     'repairShop', 14),
+        ('vehicle', ['filed_claim', 'for_accident', 'involved_vehicle'],'vehicle',    12),
+        ('witness', ['filed_claim', 'for_accident', 'witnessed_by'],    'witness',    10),
+    ]
+
+    # Gremlin predicate: accident is staged
+    def _is_staged_traversal():
+        return __.or_(
+            __.values('maneuverType').is_(P.neq('normal')),
+            __.values('policeVerified').is_(False),
+        )
+
+    seen_pairs = set()
+
+    # Claimants must: (a) have >=2 filed_claim AND (b) have at least one
+    # staged accident (maneuverType != 'normal' OR policeVerified = false).
+    # Without this pre-filter, non-fraud claimant pairs overshadow ring ones
+    # in the .limit() cut.
+    def _has_staged_accident():
+        return __.out('filed_claim').out('for_accident').or_(
+            __.values('maneuverType').is_(P.neq('normal')),
+            __.values('policeVerified').is_(False),
+        )
+
+    for pivot_kind, out_path, pivot_vtype, pivot_size in PIVOT_QUERIES:
+        # Build: Claimant a -> (out_path) -> Pivot <- (reverse out_path) <- Claimant b
+        trav = (g.V().hasLabel('claimant')
+                .where(__.out('filed_claim').count().is_(P.gte(2)))
+                .where(_has_staged_accident())
+                .as_('a'))
+        for step in out_path:
+            trav = trav.out(step)
+        for step in reversed(out_path):
+            trav = trav.in_(step)
+        pairs = (trav.hasLabel('claimant')
+                 .where(__.out('filed_claim').count().is_(P.gte(2)))
+                 .where(_has_staged_accident())
+                 .where(P.neq('a')).as_('b')
+                 .select('a', 'b').by(T.id).dedup().limit(20).toList())
+        logger.info(f"[staged-accidents] pivot={pivot_kind}: found {len(pairs)} candidate pairs")
+
+        for pair in pairs:
+            a_id, b_id = str(pair['a']), str(pair['b'])
+            key = tuple(sorted([a_id, b_id]))
+            if key in seen_pairs:
+                continue
+
+            # Find shared pivot entities for this pair
+            shared_trav = g.V(a_id)
+            for step in out_path:
+                shared_trav = shared_trav.out(step)
+            def _reach_b(t):
+                for step in reversed(out_path):
+                    t = t.in_(step)
+                return t.hasId(b_id)
+            shared_entities = (shared_trav.where(_reach_b(__))
+                               .dedup().limit(2).valueMap(True).toList())
+
+            # For each shared pivot, find claim+staged-accident pairs for both claimants
+            ring_data = []  # list of (pivot_vmap, {claimant_id: [(claim_vmap, acc_vmap), ...]})
+            for pivot in shared_entities:
+                p_id = str(pivot.get(T.id))
+                by_claimant = {}
+                for cid in (a_id, b_id):
+                    if pivot_kind == 'shop':
+                        ids_chain = (g.V(cid).out('filed_claim').as_('cl')
+                                     .where(__.out('repaired_at').hasId(p_id))
+                                     .out('for_accident').as_('acc')
+                                     .where(_is_staged_traversal())
+                                     .select('cl', 'acc').by(T.id).limit(2).toList())
+                    else:
+                        edge_to_pivot = 'involved_vehicle' if pivot_kind == 'vehicle' else 'witnessed_by'
+                        ids_chain = (g.V(cid).out('filed_claim').as_('cl')
+                                     .out('for_accident').as_('acc')
+                                     .where(__.out(edge_to_pivot).hasId(p_id))
+                                     .where(_is_staged_traversal())
+                                     .select('cl', 'acc').by(T.id).limit(2).toList())
+                    if not ids_chain:
+                        continue
+                    enriched = []
+                    for item in ids_chain:
+                        cl_id = str(item['cl'])
+                        acc_id = str(item['acc'])
+                        cl_vmap = g.V(cl_id).valueMap(True).next()
+                        acc_vmap = g.V(acc_id).valueMap(True).next()
+                        enriched.append((cl_vmap, acc_vmap))
+                    by_claimant[cid] = enriched
+                # Require BOTH claimants to have at least one staged accident via this pivot
+                if len(by_claimant) == 2:
+                    ring_data.append((pivot, by_claimant))
+
+            if not ring_data:
+                continue  # Skip pairs where no pivot connects two staged accidents
+            seen_pairs.add(key)
+
+            # Build the sub-graph
+            for cid in (a_id, b_id):
+                if cid not in node_ids:
+                    cv = g.V(cid).valueMap(True).next()
+                    add_node(cid, cv, 'claimant', size=12)
+
+            for pivot, by_claimant in ring_data:
+                p_id = str(pivot.get(T.id))
+                add_node(p_id, pivot, pivot_vtype, size=pivot_size)
+                # For vehicle pivots, enrich the node with the role (once)
+                if pivot_kind == 'vehicle' and p_id in node_ids:
+                    existing = next((n for n in nodes if n['id'] == p_id), None)
+                    if existing and 'role' not in existing:
+                        role_vals = g.V().hasLabel('accident').outE('involved_vehicle').where(__.inV().hasId(p_id)).values('role').limit(1).toList()
+                        if role_vals:
+                            existing['role'] = role_vals[0]
+                pivot_edge = {
+                    'shop': 'repaired_at',
+                    'vehicle': 'involved_vehicle',
+                    'witness': 'witnessed_by',
+                }[pivot_kind]
+                for cid, pairs_list in by_claimant.items():
+                    for cl_vmap, acc_vmap in pairs_list:
+                        cl_id, cl_node = build_claim_node(cl_vmap)
+                        add_node_dict(cl_id, cl_node)
+                        acc_node = build_accident_node(acc_vmap)
+                        add_node_dict(acc_node['id'], acc_node)
+                        add_edge(cid, cl_id, 'filed_claim')
+                        add_edge(cl_id, acc_node['id'], 'for_accident')
+                        if pivot_kind == 'shop':
+                            add_edge(cl_id, p_id, pivot_edge)
+                        elif pivot_kind == 'vehicle':
+                            # Fetch role from the edge
+                            role_val = g.V(acc_node['id']).outE('involved_vehicle').where(__.inV().hasId(p_id)).values('role').fold().next()
+                            role = role_val[0] if role_val else 'unknown'
+                            edge_key = (acc_node['id'], p_id, pivot_edge)
+                            if edge_key not in edge_keys:
+                                edge_keys.add(edge_key)
+                                edges.append({'source': acc_node['id'], 'target': p_id, 'type': pivot_edge, 'role': role})
+                        else:
+                            add_edge(acc_node['id'], p_id, pivot_edge)
+
+    return {'nodes': nodes, 'edges': edges}
+
+
+@app.get("/collision-rings/swoop-and-squat")
+@tracer.capture_method
+def detect_swoop_and_squat():
+    """
+    Swoop & Squat: vehicles involved in 2+ staged rear-end accidents
+    (maneuverType in 'swoop-squat' or 'sudden-stop') — the hallmark of ring
+    "prop" vehicles reused across deliberate crashes. Returns the vehicle,
+    all its staged accidents, and the claims/claimants filed on each.
+    """
+    g, remoteConn = get_neptune_connection()
+    nodes, edges, node_ids, edge_keys = [], [], set(), set()
+
+    def add_node(node_dict):
+        nid = node_dict['id']
+        if nid not in node_ids:
+            node_ids.add(nid)
+            nodes.append(node_dict)
+
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
+    # Vehicles involved in 2+ staged-maneuver accidents
+    suspect_vehicles = (
+        g.V().hasLabel('vehicle')
+        .where(
+            __.inE('involved_vehicle').outV()
+            .has('maneuverType', P.within('swoop-squat', 'sudden-stop'))
+            .count().is_(P.gte(2))
+        )
+        .limit(20).valueMap(True).toList()
+    )
+
+    for v in suspect_vehicles:
+        v_id = str(v.get(T.id))
+        v_node = _cr_node(g, v, 'vehicle', name_key='make', size=14)
+        add_node(v_node)
+
+        # All the staged-maneuver accidents this vehicle was involved in
+        accidents = (g.V(v_id).in_('involved_vehicle')
+                     .has('maneuverType', P.within('swoop-squat', 'sudden-stop'))
+                     .valueMap(True).toList())
+
+        for a in accidents:
+            a_id = str(a.get(T.id))
+            maneuver = _prop(a, 'maneuverType', 'accident')
+            police_verified = _prop(a, 'policeVerified', True)
+            add_node({
+                'id': a_id,
+                'label': maneuver,
+                'type': 'accident',
+                'maneuverType': maneuver,
+                'policeVerified': police_verified,
+                'fraudScore': 0.9 if maneuver == 'swoop-squat' else 0.7,
+                'size': 10,
             })
+            add_edge(a_id, v_id, 'involved_vehicle')
+            # Enrich vehicle node with role (once)
+            if 'role' not in v_node:
+                role_val = g.V(a_id).outE('involved_vehicle').where(__.inV().hasId(v_id)).values('role').fold().next()
+                if role_val:
+                    v_node['role'] = role_val[0]
 
-        # Get their claims (limit to 2 per claimant)
-        claims = g.V(c_id).out('filed_claim').limit(2).valueMap(True).toList()
-        for claim in claims:
-            claim_id = str(claim.get(T.id))
-            if claim_id not in node_ids:
-                node_ids.add(claim_id)
-                amount = claim.get('amount', [0])[0] if isinstance(claim.get('amount'), list) else claim.get('amount', 0)
-                nodes.append({
-                    'id': claim_id,
-                    'label': f"${amount:.0f}",
-                    'type': 'claim',
-                    'fraudScore': _get_fraud_score(g, claim_id),
-                    'size': 8
+            # Claims + claimants on each staged accident
+            for cl in g.V(a_id).in_('for_accident').limit(2).valueMap(True).toList():
+                cl_id = str(cl.get(T.id))
+                amount = _prop(cl, 'amount', 0)
+                add_node({
+                    'id': cl_id, 'label': f"${amount:.0f}", 'type': 'claim',
+                    'fraudScore': _get_fraud_score(g, cl_id), 'size': 7,
                 })
-            edges.append({'source': c_id, 'target': claim_id, 'type': 'filed_claim'})
+                add_edge(cl_id, a_id, 'for_accident')
 
-            # Get repair shop for this claim
-            shops = g.V(claim_id).out('repaired_at').limit(1).valueMap(True).toList()
-            for s in shops:
-                s_id = str(s.get(T.id))
-                if s_id not in node_ids:
-                    node_ids.add(s_id)
+                for cv in g.V(cl_id).in_('filed_claim').limit(1).valueMap(True).toList():
+                    cid = str(cv.get(T.id))
+                    add_node(_cr_node(g, cv, 'claimant', size=12))
+                    add_edge(cid, cl_id, 'filed_claim')
+
+    return {'nodes': nodes, 'edges': edges}
+
+
+@app.get("/collision-rings/stuffed-passengers")
+@tracer.capture_method
+def detect_stuffed_passengers():
+    """
+    Stuffed passengers ("jump-ins"): accidents with Passenger nodes linked via
+    passenger_in, their claimed_injury claims, the claimants that filed the
+    claims, and the medical providers the passengers were "treated by" — the
+    money trail from fake injury to inflated medical billing.
+
+    Each Passenger node is enriched with:
+      - appearances: total accidents the passenger is tied to
+      - injuryClaims: total claims they're claiming injury on
+      - totalClaimed: sum of claim amounts across their injury claims
+    """
+    g, remoteConn = get_neptune_connection()
+    nodes, edges, node_ids, edge_keys = [], [], set(), set()
+
+    def add_node(node_dict):
+        nid = node_dict['id']
+        if nid not in node_ids:
+            node_ids.add(nid)
+            nodes.append(node_dict)
+
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
+    accidents = (
+        g.V().hasLabel('accident')
+        .where(__.in_('passenger_in').count().is_(P.gte(1)))
+        .limit(20).valueMap(True).toList()
+    )
+
+    for a in accidents:
+        a_id = str(a.get(T.id))
+        add_node({
+            'id': a_id,
+            'label': get_node_label('accident'),
+            'type': 'accident',
+            'fraudScore': _get_fraud_score(g, a_id),
+            'size': 8,
+        })
+
+        for p in g.V(a_id).in_('passenger_in').limit(5).valueMap(True).toList():
+            p_id = str(p.get(T.id))
+
+            # Enriched passenger stats
+            appearances = g.V(p_id).out('passenger_in').count().next()
+            injury_claims = g.V(p_id).out('claimed_injury').count().next()
+            claim_amounts = g.V(p_id).out('claimed_injury').values('amount').toList()
+            total_claimed = sum(float(a) for a in claim_amounts if a is not None)
+
+            passenger_node = _cr_node(g, p, 'passenger', size=9)
+            passenger_node.update({
+                'appearances': int(appearances),
+                'injuryClaims': int(injury_claims),
+                'totalClaimed': float(total_claimed),
+                # Bump size for serial jump-ins (appearances > 1)
+                'size': 12 if appearances > 1 else 9,
+            })
+            add_node(passenger_node)
+            add_edge(p_id, a_id, 'passenger_in')
+
+            # Claims the passenger filed injury on
+            for cl in g.V(p_id).out('claimed_injury').limit(2).valueMap(True).toList():
+                cl_id = str(cl.get(T.id))
+                amount = _prop(cl, 'amount', 0)
+                add_node({
+                    'id': cl_id, 'label': f"${amount:.0f}", 'type': 'claim',
+                    'fraudScore': _get_fraud_score(g, cl_id), 'size': 7,
+                })
+                add_edge(p_id, cl_id, 'claimed_injury')
+
+                # Claimant that filed this claim
+                for cv in g.V(cl_id).in_('filed_claim').limit(1).valueMap(True).toList():
+                    cid = str(cv.get(T.id))
+                    add_node(_cr_node(g, cv, 'claimant', size=12))
+                    add_edge(cid, cl_id, 'filed_claim')
+
+            # Medical provider the passenger was "treated by" — the money trail
+            for mp in g.V(p_id).out('treated_by').limit(2).valueMap(True).toList():
+                mp_id = str(mp.get(T.id))
+                add_node(_cr_node(g, mp, 'medicalProvider', size=11))
+                add_edge(p_id, mp_id, 'treated_by')
+
+    return {'nodes': nodes, 'edges': edges}
+
+
+@app.get("/collision-rings/paper-collisions")
+@tracer.capture_method
+def detect_paper_collisions():
+    """
+    Paper collisions: phantom accidents backed only by paperwork. Accidents
+    with policeVerified=false AND a thin evidence chain (0-1 witness, 0-1
+    vehicle). Returns the accident + its claim + claimant + any (sparse)
+    Witness and Vehicle nodes so the absence of corroborating evidence is
+    visible in the graph.
+    """
+    g, remoteConn = get_neptune_connection()
+    nodes, edges, node_ids, edge_keys = [], [], set(), set()
+
+    def add_node(node_dict):
+        nid = node_dict['id']
+        if nid not in node_ids:
+            node_ids.add(nid)
+            nodes.append(node_dict)
+
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
+    # Only accidents that are both unverified AND have thin evidence
+    accidents = (
+        g.V().hasLabel('accident').has('policeVerified', False)
+        .where(__.out('witnessed_by').count().is_(P.lte(1)))
+        .where(__.out('involved_vehicle').count().is_(P.lte(1)))
+        .limit(30).valueMap(True).toList()
+    )
+
+    for a in accidents:
+        a_id = str(a.get(T.id))
+        add_node({
+            'id': a_id,
+            'label': _prop(a, 'location', 'accident'),
+            'type': 'accident',
+            'fraudScore': _get_fraud_score(g, a_id),
+            'policeVerified': False,
+            'maneuverType': _prop(a, 'maneuverType', 'normal'),
+            'size': 10,
+        })
+
+        # Show the (usually missing / sparse) Witness and Vehicle neighbors
+        for wv in g.V(a_id).out('witnessed_by').limit(2).valueMap(True).toList():
+            w_id = str(wv.get(T.id))
+            add_node(_cr_node(g, wv, 'witness', size=7))
+            add_edge(a_id, w_id, 'witnessed_by')
+
+        for vv in g.V(a_id).out('involved_vehicle').limit(2).valueMap(True).toList():
+            v_id = str(vv.get(T.id))
+            add_node(_cr_node(g, vv, 'vehicle', name_key='make', size=7))
+            add_edge(a_id, v_id, 'involved_vehicle')
+
+        # Claim + claimant
+        for cl in g.V(a_id).in_('for_accident').limit(1).valueMap(True).toList():
+            cl_id = str(cl.get(T.id))
+            amount = _prop(cl, 'amount', 0)
+            add_node({
+                'id': cl_id, 'label': f"${amount:.0f}", 'type': 'claim',
+                'fraudScore': _get_fraud_score(g, cl_id), 'size': 8,
+            })
+            add_edge(cl_id, a_id, 'for_accident')
+
+            for cv in g.V(cl_id).in_('filed_claim').limit(1).valueMap(True).toList():
+                cid = str(cv.get(T.id))
+                add_node(_cr_node(g, cv, 'claimant', size=10))
+                add_edge(cid, cl_id, 'filed_claim')
+
+    return {'nodes': nodes, 'edges': edges}
+
+
+@app.get("/collision-rings/corrupt-attorneys")
+@tracer.capture_method
+def detect_corrupt_attorneys():
+    """
+    Corrupt attorneys: attorneys with fraud score >= 0.7 who represent two or
+    more claimants (via represented_by), plus those claimants and their claims.
+    """
+    g, remoteConn = get_neptune_connection()
+    nodes, edges, node_ids = [], [], set()
+
+    # Attorneys with >=2 represented_by incoming edges
+    attorney_ids = (
+        g.V().hasLabel('attorney')
+        .where(__.inE('represented_by').count().is_(P.gte(2)))
+        .limit(60).id_().toList()
+    )
+
+    # Filter to those with fraud score >= 0.7
+    corrupt = []
+    for at_id in [str(x) for x in attorney_ids]:
+        if _get_fraud_score(g, at_id) >= 0.7:
+            corrupt.append(at_id)
+        if len(corrupt) >= 8:
+            break
+
+    for at_id in corrupt:
+        av = g.V(at_id).valueMap(True).next()
+        if at_id not in node_ids:
+            node_ids.add(at_id)
+            nodes.append(_cr_node(g, av, 'attorney', size=14))
+
+        # Claimants represented by this attorney + one of their claims each
+        for cv in g.V(at_id).in_('represented_by').limit(6).valueMap(True).toList():
+            cid = str(cv.get(T.id))
+            if cid not in node_ids:
+                node_ids.add(cid)
+                nodes.append(_cr_node(g, cv, 'claimant', size=10))
+            edges.append({'source': cid, 'target': at_id, 'type': 'represented_by'})
+
+            for cl in g.V(cid).out('filed_claim').limit(1).valueMap(True).toList():
+                cl_id = str(cl.get(T.id))
+                if cl_id not in node_ids:
+                    node_ids.add(cl_id)
+                    amount = _prop(cl, 'amount', 0)
                     nodes.append({
-                        'id': s_id,
-                        'label': get_node_label('repairShop'),
-            'name': _prop(s, 'name'),
-                        'name': _prop(s, 'name'),
-                        'type': 'repairShop',
-                        'fraudScore': _get_fraud_score(g, s_id),
-                        'size': 10
+                        'id': cl_id, 'label': f"${amount:.0f}", 'type': 'claim',
+                        'fraudScore': _get_fraud_score(g, cl_id), 'size': 6,
                     })
-                edges.append({'source': claim_id, 'target': s_id, 'type': 'repaired_at'})
+                edges.append({'source': cid, 'target': cl_id, 'type': 'filed_claim'})
 
-            # Get accident for this claim
-            accidents = g.V(claim_id).out('for_accident').limit(1).valueMap(True).toList()
-            for accident in accidents:
-                accident_id = str(accident.get(T.id))
-                if accident_id not in node_ids:
-                    node_ids.add(accident_id)
-                    nodes.append({
-                        'id': accident_id,
-                        'label': get_node_label('accident'),
-                        'type': 'accident',
-                        'fraudScore': _get_fraud_score(g, accident_id),
-                        'size': 6
+    return {'nodes': nodes, 'edges': edges}
+
+
+@app.get("/collision-rings/corrupt-tow-companies")
+@tracer.capture_method
+def detect_corrupt_tow_companies():
+    """
+    Corrupt tow companies: tow companies with fraud score >= 0.7 that tow
+    vehicles in two or more accidents, and — critically — the claims for those
+    accidents are repaired at the same (suspicious) repair shops. Returns the
+    tow company, vehicles, accidents, claims, claimants, and the target
+    RepairShop nodes so the steering pattern is visible end-to-end.
+    """
+    g, remoteConn = get_neptune_connection()
+    nodes, edges, node_ids, edge_keys = [], [], set(), set()
+
+    def add_node(node_dict):
+        nid = node_dict['id']
+        if nid not in node_ids:
+            node_ids.add(nid)
+            nodes.append(node_dict)
+
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
+    tow_ids = (
+        g.V().hasLabel('towCompany')
+        .where(__.inE('towed_by').count().is_(P.gte(2)))
+        .limit(60).id_().toList()
+    )
+
+    corrupt = []
+    for tc_id in [str(x) for x in tow_ids]:
+        if _get_fraud_score(g, tc_id) >= 0.7:
+            corrupt.append(tc_id)
+        if len(corrupt) >= 6:
+            break
+
+    for tc_id in corrupt:
+        tv = g.V(tc_id).valueMap(True).next()
+        add_node(_cr_node(g, tv, 'towCompany', size=14))
+
+        # Vehicles this tow company has handled
+        for vv in g.V(tc_id).in_('towed_by').limit(4).valueMap(True).toList():
+            v_id = str(vv.get(T.id))
+            add_node(_cr_node(g, vv, 'vehicle', name_key='make', size=8))
+            add_edge(v_id, tc_id, 'towed_by')
+
+            # Accidents this vehicle was involved in
+            for av in g.V(v_id).in_('involved_vehicle').limit(2).valueMap(True).toList():
+                a_id = str(av.get(T.id))
+                add_node({
+                    'id': a_id,
+                    'label': get_node_label('accident'),
+                    'type': 'accident',
+                    'fraudScore': _get_fraud_score(g, a_id),
+                    'size': 7,
+                })
+                add_edge(a_id, v_id, 'involved_vehicle')
+
+                # Claim for this accident + where it was repaired + the claimant
+                for cl in g.V(a_id).in_('for_accident').limit(1).valueMap(True).toList():
+                    cl_id = str(cl.get(T.id))
+                    amount = _prop(cl, 'amount', 0)
+                    add_node({
+                        'id': cl_id, 'label': f"${amount:.0f}", 'type': 'claim',
+                        'fraudScore': _get_fraud_score(g, cl_id), 'size': 6,
                     })
-                edges.append({'source': claim_id, 'target': accident_id, 'type': 'for_accident'})
+                    add_edge(cl_id, a_id, 'for_accident')
 
-                # Get witness for this accident
-                witnesses = g.V(accident_id).out('witnessed_by').limit(1).valueMap(True).toList()
-                for w in witnesses:
-                    w_id = str(w.get(T.id))
-                    if w_id not in node_ids:
-                        node_ids.add(w_id)
-                        nodes.append({
-                            'id': w_id,
-                            'label': get_node_label('witness'),
-            'name': _prop(w, 'name'),
-                            'name': _prop(w, 'name'),
-                            'type': 'witness',
-                            'fraudScore': _get_fraud_score(g, w_id),
-                            'size': 8
-                        })
-                    edges.append({'source': accident_id, 'target': w_id, 'type': 'witnessed_by'})
+                    # The steering target: repair shop
+                    for sv in g.V(cl_id).out('repaired_at').limit(1).valueMap(True).toList():
+                        s_id = str(sv.get(T.id))
+                        add_node(_cr_node(g, sv, 'repairShop', size=12))
+                        add_edge(cl_id, s_id, 'repaired_at')
 
-                # Get passengers for this accident (stuffed passengers fraud)
-                passengers = g.V(accident_id).in_('passenger_in').valueMap(True).toList()
-                for p in passengers:
-                    p_id = str(p.get(T.id))
-                    if p_id not in node_ids:
-                        node_ids.add(p_id)
-                        nodes.append({
-                            'id': p_id,
-                            'label': get_node_label('passenger'),
-                            'name': _prop(p, 'name'),
-                            'type': 'passenger',
-                            'fraudScore': _get_fraud_score(g, p_id),
-                            'size': 7
-                        })
-                    edges.append({'source': p_id, 'target': accident_id, 'type': 'passenger_in'})
-                    edges.append({'source': p_id, 'target': claim_id, 'type': 'claimed_injury'})
+                    for cmv in g.V(cl_id).in_('filed_claim').limit(1).valueMap(True).toList():
+                        cmid = str(cmv.get(T.id))
+                        add_node(_cr_node(g, cmv, 'claimant', size=10))
+                        add_edge(cmid, cl_id, 'filed_claim')
 
-                # Get vehicles involved in accident
-                vehicles = g.V(accident_id).in_('involved_vehicle').limit(1).valueMap(True).toList()
-                for v in vehicles:
-                    v_id = str(v.get(T.id))
-                    if v_id not in node_ids:
-                        node_ids.add(v_id)
-                        nodes.append({
-                            'id': v_id,
-                            'label': get_node_label('vehicle'),
-                            'name': _prop(v, 'make'),
-                            'type': 'vehicle',
-                            'fraudScore': _get_fraud_score(g, v_id),
-                            'size': 6
-                        })
-                    edges.append({'source': accident_id, 'target': v_id, 'type': 'involved_vehicle'})
+    return {'nodes': nodes, 'edges': edges}
 
-                    # Get tow company for this vehicle
-                    tow_companies = g.V(v_id).out('towed_by').limit(1).valueMap(True).toList()
-                    for tc in tow_companies:
-                        tc_id = str(tc.get(T.id))
-                        if tc_id not in node_ids:
-                            node_ids.add(tc_id)
-                            nodes.append({
-                                'id': tc_id,
-                                'label': get_node_label('towCompany'),
-                                'name': _prop(tc, 'name'),
-                                'type': 'towCompany',
-                                'fraudScore': tc.get('fraudScore', [0.0])[0] if 'fraudScore' in tc else 0.0,
-                                'size': 8
-                            })
-                        edges.append({'source': v_id, 'target': tc_id, 'type': 'towed_by'})
 
-    return {
-        'nodes': nodes,
-        'edges': edges
-    }
-
-@app.get("/fraud-patterns/professional-witnesses")
+@app.get("/network-fraud/professional-witnesses")
 @tracer.capture_method
 def detect_professional_witnesses():
     """
-    Detect professional witnesses - returns network graph showing witnesses and their claims
+    Detect professional witnesses: witnesses that appear in 3+ distinct
+    accidents. Returns the Witness at the center, its accidents (via
+    witnessed_by), the claims for those accidents (via for_accident), and
+    the claimants that filed each claim (via filed_claim).
     """
     g, remoteConn = get_neptune_connection()
-    
+
     nodes = []
     edges = []
     node_ids = set()
+    edge_keys = set()
 
-    # Get witnesses who appear in multiple accidents (limit to 10 for clearer visualization)
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
+    # Witnesses involved in 3+ accidents
     witnesses = g.V().hasLabel('witness').has('name').where(
         __.inE('witnessed_by').count().is_(P.gte(3))
-    ).limit(10).valueMap(True).toList()
+    ).limit(20).valueMap(True).toList()
 
     for w in witnesses:
         w_id = str(w.get(T.id))
@@ -800,7 +1298,7 @@ def detect_professional_witnesses():
             'size': 15
         })
 
-        # Get accidents they witnessed
+        # Accidents witnessed
         accidents = g.V(w_id).inE('witnessed_by').outV().valueMap(True).toList()
         for a in accidents:
             a_id = str(a.get(T.id))
@@ -813,23 +1311,36 @@ def detect_professional_witnesses():
                     'fraudScore': _get_fraud_score(g, a_id),
                     'size': 10
                 })
-            edges.append({'source': w_id, 'target': a_id})
+            add_edge(a_id, w_id, 'witnessed_by')
 
-            # Get claimants from those accidents (limit to 1 per accident)
-            claimants = g.V(a_id).inE('for_accident').outV().inE('filed_claim').outV().dedup().limit(1).valueMap(True).toList()
-            for c in claimants:
-                c_id = str(c.get(T.id))
-                if c_id not in node_ids:
-                    node_ids.add(c_id)
+            # Claim for this accident + the claimant who filed
+            for cl in g.V(a_id).inE('for_accident').outV().limit(1).valueMap(True).toList():
+                cl_id = str(cl.get(T.id))
+                if cl_id not in node_ids:
+                    node_ids.add(cl_id)
+                    amount = _prop(cl, 'amount', 0)
                     nodes.append({
-                        'id': c_id,
-                        'label': get_node_label('claimant'),
-                'name': _prop(c, 'name'),
-                        'type': 'claimant',
-                        'fraudScore': _get_fraud_score(g, c_id),
-                        'size': 12
+                        'id': cl_id,
+                        'label': f"${amount:.0f}",
+                        'type': 'claim',
+                        'fraudScore': _get_fraud_score(g, cl_id),
+                        'size': 7
                     })
-                edges.append({'source': a_id, 'target': c_id})
+                add_edge(cl_id, a_id, 'for_accident')
+
+                for c in g.V(cl_id).inE('filed_claim').outV().limit(1).valueMap(True).toList():
+                    c_id = str(c.get(T.id))
+                    if c_id not in node_ids:
+                        node_ids.add(c_id)
+                        nodes.append({
+                            'id': c_id,
+                            'label': get_node_label('claimant'),
+                            'name': _prop(c, 'name'),
+                            'type': 'claimant',
+                            'fraudScore': _get_fraud_score(g, c_id),
+                            'size': 12
+                        })
+                    add_edge(c_id, cl_id, 'filed_claim')
 
     return {
         'nodes': nodes,
@@ -883,7 +1394,7 @@ def get_fraud_trends():
         'totalClaimants': total_claimants
     }
 
-@app.get("/fraud-networks/influential-claimants")
+@app.get("/advanced-analysis/influential-claimants")
 @tracer.capture_method
 def get_influential_claimants():
     """
@@ -928,7 +1439,7 @@ def get_influential_claimants():
         ]
     }
 
-@app.get("/fraud-networks/organized-rings")
+@app.get("/network-fraud/organized-rings")
 @tracer.capture_method
 def detect_organized_fraud_rings():
     """
@@ -953,7 +1464,7 @@ def detect_organized_fraud_rings():
     # Get only top claimants with multiple claims (limit to 50 for performance)
     seed_claimants = g.V().hasLabel('claimant').where(
         __.out('filed_claim').count().is_(P.gt(2))
-    ).limit(50).toList()
+    ).limit(100).toList()
 
     seen_seeds = set()
 
@@ -1074,13 +1585,7 @@ def detect_organized_fraud_rings():
         'rings': rings
     }
 
-@app.get("/repair-shops/fraud-hubs")
-@tracer.capture_method
-def identify_fraud_hub_shops():
-    # Legacy redirect — kept for API compatibility
-    return _get_fraud_hubs_data()
-
-@app.get("/fraud-networks/hubs")
+@app.get("/network-fraud/fraud-hubs")
 @tracer.capture_method
 def get_fraud_hubs():
     return _get_fraud_hubs_data()
@@ -1185,7 +1690,7 @@ def _get_fraud_hubs_data():
 
     return result
 
-@app.get("/fraud-networks/connections")
+@app.get("/advanced-analysis/connections")
 @tracer.capture_method
 def find_fraudster_connections():
     """
@@ -1333,22 +1838,32 @@ def find_fraudster_connections():
         'insight': 'Short paths between claimants indicate potential organized fraud rings'
     }
 
-@app.get("/fraud-patterns/collusion-indicators")
+@app.get("/network-fraud/collusion-indicators")
 @tracer.capture_method
 def detect_collusion_indicators():
     """
-    Detect collusion indicators - returns network graph showing shared resources
+    Detect collusion indicators: a RepairShop that sits at the center of 5+
+    Claimants reached through Claim intermediaries (filed_claim →
+    repaired_at). The more distinct claimants converging on the same shop —
+    especially with elevated fraud scores — the stronger the collusion
+    signal. Returns the shop + intermediate claims + claimants.
     """
     g, remoteConn = get_neptune_connection()
-    
+
     nodes = []
     edges = []
     node_ids = set()
+    edge_keys = set()
 
-    # Get repair shops with multiple claimants (potential collusion hubs)
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
     shops = g.V().hasLabel('repairShop').has('name').where(
         __.inE('repaired_at').count().is_(P.gte(5))
-    ).limit(5).valueMap(True).toList()
+    ).limit(15).valueMap(True).toList()
 
     for s in shops:
         s_id = str(s.get(T.id))
@@ -1362,27 +1877,42 @@ def detect_collusion_indicators():
             'size': 20
         })
 
-        # Get claimants who use this shop
-        claimants = g.V(s_id).inE('repaired_at').outV().inE('filed_claim').outV().dedup().limit(5).valueMap(True).toList()
-        for c in claimants:
-            c_id = str(c.get(T.id))
-            if c_id not in node_ids:
-                node_ids.add(c_id)
+        # Claims using this shop + the claimants behind each claim
+        claims = g.V(s_id).inE('repaired_at').outV().dedup().limit(12).valueMap(True).toList()
+        for cl in claims:
+            cl_id = str(cl.get(T.id))
+            if cl_id not in node_ids:
+                node_ids.add(cl_id)
+                amount = _prop(cl, 'amount', 0)
                 nodes.append({
-                    'id': c_id,
-                    'label': get_node_label('claimant'),
-                'name': _prop(c, 'name'),
-                    'fraudScore': _get_fraud_score(g, c_id),
-                    'size': 12
+                    'id': cl_id,
+                    'label': f"${amount:.0f}",
+                    'type': 'claim',
+                    'fraudScore': _get_fraud_score(g, cl_id),
+                    'size': 7,
                 })
-            edges.append({'source': c_id, 'target': s_id})
+            add_edge(cl_id, s_id, 'repaired_at')
+
+            for c in g.V(cl_id).inE('filed_claim').outV().limit(1).valueMap(True).toList():
+                c_id = str(c.get(T.id))
+                if c_id not in node_ids:
+                    node_ids.add(c_id)
+                    nodes.append({
+                        'id': c_id,
+                        'label': get_node_label('claimant'),
+                        'name': _prop(c, 'name'),
+                        'type': 'claimant',
+                        'fraudScore': _get_fraud_score(g, c_id),
+                        'size': 12
+                    })
+                add_edge(c_id, cl_id, 'filed_claim')
 
     return {
         'nodes': nodes,
         'edges': edges
     }
 
-@app.get("/fraud-networks/isolated-rings")
+@app.get("/network-fraud/isolated-rings")
 @tracer.capture_method
 def find_isolated_fraud_rings():
     """
@@ -1451,7 +1981,7 @@ def find_isolated_fraud_rings():
         'insight': 'Isolated components may represent independent fraud rings'
     }
 
-@app.get("/vehicles/<vehicle_id>/fraud-history")
+@app.get("/entity-lookup/vehicles/<vehicle_id>/fraud-history")
 @tracer.capture_method
 def get_vehicle_fraud_history(vehicle_id: str):
     """
@@ -1525,14 +2055,14 @@ def get_vehicle_fraud_history(vehicle_id: str):
         }
     }
 
-@app.get("/vehicles/<vehicle_id>")
+@app.get("/entity-lookup/vehicles/<vehicle_id>")
 @tracer.capture_method
 def get_vehicle_network(vehicle_id: str):
     """Get vehicle's one-level neighborhood network graph"""
     g, remoteConn = get_neptune_connection()
     return _build_neighborhood_graph(g, vehicle_id, 'vehicle')
 
-@app.get("/medical-providers/<provider_id>/fraud-analysis")
+@app.get("/network-fraud/medical-providers/<provider_id>/fraud-analysis")
 @tracer.capture_method
 def analyze_medical_provider_fraud(provider_id: str):
     """
@@ -1602,7 +2132,7 @@ def analyze_medical_provider_fraud(provider_id: str):
         }
     }
 
-@app.get("/medical-providers/<provider_id>")
+@app.get("/network-fraud/medical-providers/<provider_id>")
 @tracer.capture_method
 def get_medical_provider_network(provider_id: str):
     """Get medical provider's one-level neighborhood network graph"""
@@ -1689,66 +2219,128 @@ def analyze_claim_velocity(claimant_id: str):
 @tracer.capture_method
 def detect_geographic_fraud_hotspots():
     """
-    Detect fraud hotspots across entity types: repair shops, medical providers, attorneys, tow companies
+    Detect geographic fraud hotspots by clustering accidents and entities by zip code.
+    Returns zip-code-level clusters with coordinates, fraud density, and linked entities.
     """
     g, remoteConn = get_neptune_connection()
 
-    def build_entity_hotspots(label, in_edge, limit=5):
-        """Find top entities by claim volume with their claimant networks — single traversal"""
-        rows = (
-            g.V().hasLabel(label).has('name')
-            .order().by(__.inE(in_edge).count(), Order.desc)
-            .limit(limit)
-            .project('id', 'name', 'count', 'claimIds', 'claimantData')
+    # 1. Cluster accidents by zipCode, compute fraud density per zone
+    accident_zips = (
+        g.V().hasLabel('accident').has('zipCode')
+        .group().by('zipCode')
+        .by(__.project('count', 'fraudCount', 'lat', 'lng')
+            .by(__.count())
+            .by(__.in_('for_accident').has('isFraud', True).count())
+            .by(__.values('latitude').mean())
+            .by(__.values('longitude').mean()))
+        .next()
+    )
+
+    zones = []
+    for zip_code, stats in accident_zips.items():
+        total = int(stats['count'])
+        fraud_count = int(stats['fraudCount'])
+        zones.append({
+            'zipCode': zip_code,
+            'latitude': round(float(stats['lat']), 6) if stats['lat'] else None,
+            'longitude': round(float(stats['lng']), 6) if stats['lng'] else None,
+            'totalAccidents': total,
+            'fraudAccidents': fraud_count,
+            'fraudDensity': round(fraud_count / total, 3) if total > 0 else 0,
+        })
+
+    zones.sort(key=lambda z: z['fraudDensity'], reverse=True)
+
+    # 2. For top fraud zones, find suspicious entities in those zip codes
+    top_zips = [z['zipCode'] for z in zones[:5] if z['fraudDensity'] > 0.1]
+
+    def entities_in_zips(label, zips):
+        if not zips:
+            return []
+        results = []
+        for zc in zips:
+            entities = (
+                g.V().hasLabel(label).has('zipCode', zc)
+                .project('id', 'name', 'lat', 'lng', 'zipCode', 'fraudScore')
+                .by(T.id)
+                .by('name')
+                .by('latitude')
+                .by('longitude')
+                .by('zipCode')
+                .by(__.out('has_fraud_score').values('fraudScore').fold())
+                .toList()
+            )
+            for e in entities:
+                fs = e['fraudScore']
+                score = float(fs[0]) if fs else 0
+                results.append({
+                    'id': str(e['id']),
+                    'name': e['name'],
+                    'latitude': float(e['lat']) if e['lat'] else None,
+                    'longitude': float(e['lng']) if e['lng'] else None,
+                    'zipCode': e['zipCode'],
+                    'fraudScore': round(score, 3),
+                    'type': label,
+                })
+        results.sort(key=lambda x: x['fraudScore'], reverse=True)
+        return results
+
+    # 3. Build graph visualization for the top fraud zone
+    nodes, edges, node_ids = [], [], set()
+    if top_zips:
+        top_zip = top_zips[0]
+        # Get accidents in the hottest zone
+        accidents = (
+            g.V().hasLabel('accident').has('zipCode', top_zip).limit(30)
+            .project('id', 'lat', 'lng', 'date', 'claimId', 'claimantId', 'shopId')
             .by(T.id)
-            .by('name')
-            .by(__.inE(in_edge).count())
-            .by(__.inE(in_edge).outV().limit(8).id_().fold())
-            .by(__.inE(in_edge).outV().limit(8).in_('filed_claim').dedup()
-                .project('id', 'name').by(T.id).by(__.values('name').fold()).fold())
+            .by('latitude')
+            .by('longitude')
+            .by('date')
+            .by(__.in_('for_accident').limit(1).id_().fold())
+            .by(__.in_('for_accident').limit(1).in_('filed_claim').limit(1).id_().fold())
+            .by(__.in_('for_accident').limit(1).out('repaired_at').limit(1).id_().fold())
             .toList()
         )
 
-        nodes = []
-        edges = []
-        node_ids = set()
+        for a in accidents:
+            aid = str(a['id'])
+            if aid not in node_ids:
+                node_ids.add(aid)
+                nodes.append({'id': aid, 'type': 'accident', 'label': f"Accident ({a['date']})",
+                              'latitude': float(a['lat']), 'longitude': float(a['lng']), 'size': 8,
+                              'fraudScore': _get_fraud_score(g, aid)})
 
-        for row in rows:
-            eid = str(row['id'])
-            node_ids.add(eid)
-            nodes.append({
-                'id': eid,
-                'label': get_node_label(label),
-                'name': row['name'],
-                'type': label,
-                'size': min(int(row['count']) * 2 + 10, 40)
-            })
-
-            claim_ids = [str(c) for c in row['claimIds']]
-            for cid in claim_ids:
+            for cid in [str(x) for x in a.get('claimId', [])]:
                 if cid not in node_ids:
                     node_ids.add(cid)
-                    nodes.append({'id': cid, 'label': get_node_label('claim'), 'type': 'claim', 'size': 7})
-                edges.append({'source': cid, 'target': eid, 'type': in_edge})
+                    nodes.append({'id': cid, 'type': 'claim', 'label': 'Claim', 'size': 7,
+                                  'fraudScore': _get_fraud_score(g, cid)})
+                edges.append({'source': cid, 'target': aid, 'type': 'for_accident'})
 
-            for cl in row['claimantData']:
-                clid = str(cl['id'])
-                name = cl['name'][0] if cl['name'] else None
-                if clid not in node_ids:
-                    node_ids.add(clid)
-                    nodes.append({'id': clid, 'label': get_node_label('claimant'), 'name': name, 'type': 'claimant', 'size': 10})
-                # Edge from claimant to one of the claims (approximate — link to first shared claim)
-                for cid in claim_ids:
+                for clid in [str(x) for x in a.get('claimantId', [])]:
+                    if clid not in node_ids:
+                        node_ids.add(clid)
+                        nodes.append({'id': clid, 'type': 'claimant', 'label': 'Claimant', 'size': 10,
+                                      'fraudScore': _get_fraud_score(g, clid)})
                     edges.append({'source': clid, 'target': cid, 'type': 'filed_claim'})
-                    break  # one edge per claimant is enough for visualization
 
-        return {'nodes': nodes, 'edges': edges}
+                for sid in [str(x) for x in a.get('shopId', [])]:
+                    if sid not in node_ids:
+                        node_ids.add(sid)
+                        nodes.append({'id': sid, 'type': 'repairShop', 'label': 'Repair Shop', 'size': 12,
+                                      'fraudScore': _get_fraud_score(g, sid)})
+                    edges.append({'source': cid, 'target': sid, 'type': 'repaired_at'})
 
     return {
-        'repairShops': build_entity_hotspots('repairShop', 'repaired_at'),
-        'medicalProviders': build_entity_hotspots('medicalProvider', 'treated_by'),
-        'attorneys': build_entity_hotspots('attorney', 'represented_by'),
-        'towCompanies': build_entity_hotspots('towCompany', 'towed_by'),
+        'zones': zones,
+        'hotspotEntities': {
+            'repairShops': entities_in_zips('repairShop', top_zips),
+            'medicalProviders': entities_in_zips('medicalProvider', top_zips),
+            'towCompanies': entities_in_zips('towCompany', top_zips),
+        },
+        'graph': {'nodes': nodes, 'edges': edges},
+        'insight': f"Top fraud zone: ZIP {zones[0]['zipCode']} with {zones[0]['fraudDensity']*100:.0f}% fraud density" if zones else "No geographic data available",
     }
 
 @app.get("/analytics/claim-amount-anomalies")
@@ -1924,88 +2516,6 @@ def detect_temporal_fraud_patterns():
         'rapidFilers': result
     }
 
-@app.get("/fraud-patterns/cross-claim-patterns")
-@tracer.capture_method
-def detect_cross_claim_patterns():
-    """
-    Detect claimants who always use same entities (repair shops, witnesses, providers)
-    
-    FRAUD CASE: Habitual Pattern Fraud
-    WHAT IT DOES: Identifies claimants who consistently use the same repair shops, witnesses,
-    or medical providers across multiple claims, indicating pre-arranged fraud relationships
-    WHY IT'S FRAUD: Legitimate claimants use different service providers based on accident
-    location, convenience, and recommendations. Fraudsters repeatedly use the same complicit
-    repair shops, witnesses, and medical providers because these entities are part of their
-    fraud operation. Consistent patterns across claims reveal pre-arranged fraud relationships.
-    
-    BUSINESS VALUE: Exposes fraud networks by identifying habitual relationships, helps
-    investigators focus on claimants with suspicious loyalty patterns, and reveals the
-    infrastructure supporting fraud operations.
-    """
-    g, remoteConn = get_neptune_connection()
-    
-    # Find claimants with consistent patterns across claims
-    patterns = []
-
-    claimants = g.V().hasLabel('claimant').where(
-        __.out('filed_claim').count().is_(P.gt(2))
-    ).toList()
-
-    for claimant in claimants:
-        c_id = str(claimant.id)
-
-        # Get claim count
-        claim_count = g.V(c_id).out('filed_claim').count().next()
-
-        # Get unique repair shops used
-        repair_shops = g.V(c_id).out('filed_claim').out('repaired_at').dedup().toList()
-
-        # Get unique witnesses
-        witnesses = g.V(c_id).out('filed_claim').out('witnessed_by').dedup().toList()
-
-        # Get unique medical providers
-        providers = g.V(c_id).out('filed_claim').out('treated_by').dedup().toList()
-
-        # Calculate pattern consistency (low diversity = suspicious)
-        shop_diversity = len(repair_shops) / claim_count if claim_count > 0 else 0
-        witness_diversity = len(witnesses) / claim_count if claim_count > 0 else 0
-        provider_diversity = len(providers) / claim_count if claim_count > 0 else 0
-
-        # Low diversity across multiple claims is suspicious
-        if claim_count >= 3 and (shop_diversity < 0.5 or witness_diversity < 0.5):
-            # Use Neptune ML to assess pattern-based fraud risk
-            try:
-                pattern_risk = g.V(c_id).properties('patternRisk').with_("Neptune#ml.regression").with_("Neptune#ml.inductiveInference").value().next()
-                ml_pattern_score = float(pattern_risk) if pattern_risk else (1 - shop_diversity)
-            except Exception:
-                ml_pattern_score = 1 - shop_diversity
-
-            patterns.append({
-                'claimantId': c_id,
-                'totalClaims': claim_count,
-                'uniqueRepairShops': len(repair_shops),
-                'uniqueWitnesses': len(witnesses),
-                'uniqueProviders': len(providers),
-                'shopDiversity': _trunc(shop_diversity),
-                'witnessDiversity': _trunc(witness_diversity),
-                'mlPatternScore': _trunc(ml_pattern_score),
-                'suspicionLevel': 'high' if ml_pattern_score > 0.7 else 'medium' if ml_pattern_score > 0.5 else 'low',
-                'redFlags': {
-                    'sameShopAlways': len(repair_shops) == 1 and claim_count > 2,
-                    'sameWitnessAlways': len(witnesses) == 1 and claim_count > 2,
-                    'lowDiversity': shop_diversity < 0.3 and claim_count > 3
-                }
-            })
-
-    patterns.sort(key=lambda x: x['mlPatternScore'], reverse=True)
-
-    return {
-        'algorithm': 'Cross-Claim Pattern Analysis + Neptune ML',
-        'totalSuspiciousPatterns': len(patterns),
-        'highRiskPatterns': [p for p in patterns if p['suspicionLevel'] == 'high'][:10],
-        'allPatterns': patterns[:20]
-    }
-
 @app.get("/claimants/<claimant_id>/fraud-analysis")
 @tracer.capture_method
 def analyze_claimant_fraud(claimant_id: str):
@@ -2025,10 +2535,13 @@ def get_claimant_network(claimant_id: str):
     
     return _build_neighborhood_graph(g, claimant_id, 'claimant')
 
-@app.get("/fraud-patterns/cross-claim-patterns/<claimant_id>")
+@app.get("/network-fraud/cross-claim-patterns/<claimant_id>")
 @tracer.capture_method
 def get_claimant_neighborhood(claimant_id: str):
-    """Get cross-claim pattern metrics and neighborhood graph for a claimant"""
+    """Get cross-claim pattern metrics and a 2-hop graph showing the claimant,
+    their claims, and the downstream entities (RepairShop, Witness,
+    MedicalProvider) those claims touch. Entities that reappear across
+    multiple claims are the tell-tale habitual-fraud signature."""
     g, remoteConn = get_neptune_connection()
 
     if not g.V(claimant_id).hasNext():
@@ -2037,13 +2550,73 @@ def get_claimant_neighborhood(claimant_id: str):
     # Calculate cross-claim metrics
     claim_count = g.V(claimant_id).out('filed_claim').count().next()
     repair_shops = g.V(claimant_id).out('filed_claim').out('repaired_at').dedup().toList()
-    witnesses = g.V(claimant_id).out('filed_claim').out('witnessed_by').dedup().toList()
+    witnesses = g.V(claimant_id).out('filed_claim').out('for_accident').out('witnessed_by').dedup().toList()
     providers = g.V(claimant_id).out('filed_claim').out('treated_by').dedup().toList()
 
     shop_diversity = len(repair_shops) / claim_count if claim_count > 0 else 0
     witness_diversity = len(witnesses) / claim_count if claim_count > 0 else 0
 
-    graph = _build_neighborhood_graph(g, claimant_id, 'claimant')
+    # Build a 2-hop graph: claimant -> claim -> (shop, accident->witness, medical provider)
+    nodes, edges, node_ids, edge_keys = [], [], set(), set()
+
+    def add_node(node_dict):
+        nid = node_dict['id']
+        if nid not in node_ids:
+            node_ids.add(nid)
+            nodes.append(node_dict)
+
+    def add_edge(source, target, edge_type):
+        key = (source, target, edge_type)
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges.append({'source': source, 'target': target, 'type': edge_type})
+
+    claimant_v = g.V(claimant_id).valueMap(True).next()
+    add_node({
+        'id': claimant_id,
+        'label': get_node_label('claimant'),
+        'name': _prop(claimant_v, 'name'),
+        'type': 'claimant',
+        'fraudScore': _get_fraud_score(g, claimant_id),
+        'size': 15,
+    })
+
+    # 1-hop: Claims
+    claim_vmaps = g.V(claimant_id).out('filed_claim').limit(12).valueMap(True).toList()
+    for cl in claim_vmaps:
+        cl_id = str(cl.get(T.id))
+        amount = _prop(cl, 'amount', 0)
+        add_node({
+            'id': cl_id, 'label': f"${amount:.0f}", 'type': 'claim',
+            'fraudScore': _get_fraud_score(g, cl_id), 'size': 8,
+        })
+        add_edge(claimant_id, cl_id, 'filed_claim')
+
+        # 2-hop: RepairShop via repaired_at
+        for sv in g.V(cl_id).out('repaired_at').limit(1).valueMap(True).toList():
+            s_id = str(sv.get(T.id))
+            add_node(_cr_node(g, sv, 'repairShop', size=10))
+            add_edge(cl_id, s_id, 'repaired_at')
+
+        # 2-hop: MedicalProvider via treated_by
+        for mv in g.V(cl_id).out('treated_by').limit(1).valueMap(True).toList():
+            m_id = str(mv.get(T.id))
+            add_node(_cr_node(g, mv, 'medicalProvider', size=10))
+            add_edge(cl_id, m_id, 'treated_by')
+
+        # 2-hop: Accident via for_accident, 3-hop: Witness via witnessed_by
+        for av in g.V(cl_id).out('for_accident').limit(1).valueMap(True).toList():
+            a_id = str(av.get(T.id))
+            add_node({
+                'id': a_id, 'label': get_node_label('accident'),
+                'type': 'accident',
+                'fraudScore': _get_fraud_score(g, a_id), 'size': 6,
+            })
+            add_edge(cl_id, a_id, 'for_accident')
+            for wv in g.V(a_id).out('witnessed_by').limit(1).valueMap(True).toList():
+                w_id = str(wv.get(T.id))
+                add_node(_cr_node(g, wv, 'witness', size=8))
+                add_edge(a_id, w_id, 'witnessed_by')
 
     return {
         'metrics': {
@@ -2059,17 +2632,36 @@ def get_claimant_neighborhood(claimant_id: str):
                 'lowDiversity': shop_diversity < 0.3 and claim_count > 3
             }
         },
-        'nodes': graph.get('nodes', []),
-        'edges': graph.get('edges', [])
+        'nodes': nodes,
+        'edges': edges,
     }
 
 # List endpoints for dropdowns
 @app.get("/claimants")
 @tracer.capture_method
 def list_claimants():
-    """List all claimants"""
+    """List claimants that have filed at least one claim.
+
+    Dropdowns calling this endpoint break on zero-claim claimants (e.g.
+    Fraud Analysis, Claim Velocity, Cross-Claim Patterns) because the
+    downstream queries return empty payloads. Filtering them out at the
+    source keeps the UX clean without adding defensive checks everywhere.
+    """
     g, remoteConn = get_neptune_connection()
-    return {'claimants': _list_entities(g, 'claimant')}
+    claimants = (
+        g.V().hasLabel('claimant')
+        .where(__.out('filed_claim').count().is_(P.gte(1)))
+        .valueMap(True).toList()
+    )
+    return {
+        'claimants': [
+            {
+                'id': str(c.get(T.id)),
+                'name': _prop(c, 'name'),
+            }
+            for c in claimants
+        ]
+    }
 
 @app.get("/claims")
 @tracer.capture_method

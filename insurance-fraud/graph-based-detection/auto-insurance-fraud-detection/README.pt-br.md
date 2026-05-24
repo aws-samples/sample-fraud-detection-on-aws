@@ -28,7 +28,7 @@ export AWS_PROFILE=default   # Padrão: default
 ### O Que Você Obtém
 
 Após a conclusão da implantação, você terá:
-- ✅ API de detecção de fraude totalmente operacional com 24 endpoints
+- ✅ API de detecção de fraude totalmente operacional com 44 endpoints
 - ✅ **Autenticação Cognito** - Controle de acesso seguro baseado em JWT com cookies httpOnly
 - ✅ **Aplicação web frontend** - Painel interativo de detecção de fraude com armazenamento seguro de tokens
 - ✅ **Proteção WAF** - Limitação de taxa, OWASP Top 10, proteção contra injeção SQL
@@ -37,21 +37,22 @@ Após a conclusão da implantação, você terá:
 - ✅ **Segurança Lambda** - Concorrência reservada e registro estruturado com Powertools
 - ✅ **Cabeçalhos de Segurança CloudFront** - Proteção HSTS, CSP, X-Frame-Options
 - ✅ Banco de dados de grafos Neptune com 2000 sinistros de seguros de amostra
-- ✅ 14 funções Lambda para detecção de fraude, treinamento ML e autenticação
+- ✅ 16 funções Lambda para detecção de fraude, treinamento ML e autenticação
 - ✅ API Gateway com validação de solicitações e endpoints autenticados
 - ✅ Pipeline de treinamento ML com Step Functions
 - ✅ **Zero acesso à internet da VPC** - Todo o tráfego via endpoints VPC
 
 ### Autenticação Obrigatória
 
-Todos os endpoints da API requerem autenticação. Use o script `authenticate.sh` para criar um usuário e obter um token:
+Todos os endpoints da API requerem autenticação. Use o script `authenticate.sh` para criar um usuário e obter um cookie de sessão:
 
 ```bash
 ./scripts/authenticate.sh -u usuario@empresa.com -p SuaSenha123!
 ```
 
-# Chamar API com o token
-curl -H "Authorization: Bearer $AUTH_TOKEN" \
+```bash
+# Chamar API com o cookie jar salvo
+curl -b .auth-cookie \
   https://SEU-API-ENDPOINT/prod/analytics/fraud-trends
 ```
 
@@ -64,9 +65,9 @@ Opções:
   -p, --password <pass>     Senha do usuário (opcional, gera aleatória se não fornecida)
   --region <region>         Região AWS (padrão: $AWS_REGION ou us-east-1)
   --profile <profile>       Perfil AWS (padrão: $AWS_PROFILE ou default)
-  --output <file>           Arquivo de saída do token (padrão: .auth-token)
+  --output <file>           Arquivo cookie jar de saída (padrão: .auth-cookie)
   --create-only             Apenas criar usuário, não autenticar
-  --token-only              Apenas obter token para usuário existente
+  --token-only              Apenas fazer login para usuário existente
   -h, --help                Mostrar mensagem de ajuda
 ```
 
@@ -75,7 +76,7 @@ Opções:
 # Apenas criar usuário sem autenticar
 ./scripts/authenticate.sh -u usuario@empresa.com -p MinhaPass123! --create-only
 
-# Obter token para usuário existente
+# Fazer login para usuário existente e salvar o cookie de sessão
 ./scripts/authenticate.sh -u usuario@empresa.com -p MinhaPass123! --token-only
 
 # Usar em região diferente
@@ -89,9 +90,9 @@ Esta solução usa uma **arquitetura modular de stacks aninhados** com seguranç
 **Serviços Principais:**
 - **Amazon Neptune** - Banco de dados de grafos armazenando sinistros, segurados, veículos, acidentes, oficinas e testemunhas (com autenticação IAM)
 - **Neptune ML** - Modelo de Rede Neural de Grafos (GNN) para previsão de fraude
-- **AWS Lambda** - 14 funções serverless para API, população de dados e pipeline ML (com concorrência reservada)
+- **AWS Lambda** - 16 funções serverless para API, população de dados e pipeline ML (com concorrência reservada)
 - **AWS Step Functions** - Orquestração do pipeline de treinamento ML
-- **Amazon API Gateway** - API REST com 24 endpoints autenticados e validação de solicitações
+- **Amazon API Gateway** - API REST com 44 endpoints autenticados e validação de solicitações
 - **AWS Batch** - Trabalhos de exportação de dados do Neptune (com autenticação IAM)
 - **Amazon S3** - Armazenamento de dados de treinamento ML e modelos
 - **Amazon SageMaker** - Treinamento de modelos ML e endpoints de inferência
@@ -105,7 +106,7 @@ Esta solução usa uma **arquitetura modular de stacks aninhados** com seguranç
 - **Autenticação IAM** - Neptune e Lambda usam credenciais IAM
 - **Cabeçalhos de Segurança CloudFront** - HSTS, CSP, X-Frame-Options, X-Content-Type-Options
 
-**Infraestrutura:** 11 stacks aninhados do CloudFormation para modularidade e manutenibilidade
+**Infraestrutura:** 13 stacks aninhados do CloudFormation para modularidade e manutenibilidade
 
 ![Diagrama de Arquitetura](generated-diagrams/architecture.png)
 
@@ -177,7 +178,7 @@ A maneira mais fácil de implantar é usando o script fornecido:
 **Tempo de treinamento ML: 1-2 horas (executa em segundo plano)**
 
 **Importante:** Após a conclusão da implantação:
-- ✅ 9 endpoints de algoritmos de grafos funcionam imediatamente
+- ✅ 14 endpoints de algoritmos de grafos funcionam imediatamente
 - ⏳ 5 endpoints alimentados por ML estarão disponíveis após a conclusão do treinamento (1-2 horas)
 
 ### Opções de Configuração
@@ -230,13 +231,13 @@ aws cloudformation update-stack \
 
 ## O Que É Implantado
 
-**Infraestrutura (11 Stacks Aninhados):**
+**Infraestrutura (13 Stacks Aninhados):**
 - Cluster Amazon Neptune (db.t3.medium) com ML habilitado e autenticação IAM
 - User Pool do Amazon Cognito para autenticação
 - AWS WAF com 5 regras de proteção
 - VPC com sub-redes privadas e 12 endpoints VPC
-- 14 funções AWS Lambda (com concorrência reservada e registro Powertools)
-- API Gateway com autorizador JWT, validação de solicitações e 24 endpoints (incluindo logout)
+- 16 funções AWS Lambda (com concorrência reservada e registro Powertools)
+- API Gateway com autorizador JWT, validação de solicitações e 44 endpoints (incluindo logout)
 - Pipeline de treinamento ML com Step Functions
 - AWS Batch para exportação do Neptune (com autenticação IAM)
 - Bucket S3 para Neptune ML (com políticas de ciclo de vida)
@@ -245,57 +246,87 @@ aws cloudformation update-stack \
 - Distribuição CloudFront com cabeçalhos de segurança
 
 **Dados de Amostra:**
-- 1.000 segurados
-- 1.500 veículos
-- 200 oficinas de reparação (10% suspeitas)
-- 150 provedores médicos (13% suspeitos)
+- 1.000 segurados (com endereço, telefone, email — compartilhados entre membros de anéis de fraude)
+- 1.500 veículos (10 veículos com múltiplos proprietários — "policy-hopping")
+- 200 oficinas de reparação (10% suspeitas, com geolocalização)
+- 150 provedores médicos (13% suspeitos, com geolocalização)
 - 300 testemunhas (20% profissionais)
 - 250 advogados (20% corruptos)
-- 200 empresas de reboque (20% corruptas)
-- 2.000 sinistros de seguros (40% fraudulentos)
-- Passageiros variáveis (passageiros falsos em sinistros fraudulentos)
+- 200 empresas de reboque (20% corruptas, com geolocalização)
+- 2.154 sinistros de seguros com geolocalização e padrões temporais
+- 15 passageiros inter-anel (aparecem em acidentes não relacionados de diferentes segurados)
+- 20 passageiros seriais "jump-in" (passageiros falsos em sinistros fraudulentos)
+- 10 segurados de alta velocidade (4-5 sinistros em 60 dias)
+- 10 segurados com escalamento (valores escalam de $2K a $14K ao longo do tempo)
+- 3 zonas geográficas de fraude (CEPs com atividade fraudulenta concentrada)
+- 6 anéis de acidentes encenados (incluindo 2 anéis com veículo compartilhado com propriedade `role`: at-fault/victim)
+- Semente determinística para dados de grafo reproduzíveis
 
-## Endpoints da API (22 no Total)
+## Endpoints da API (44 no Total)
 
-Todos os endpoints requerem autenticação JWT via cabeçalho `Authorization: Bearer <token>`.
+Todos os endpoints requerem autenticação via cookie httpOnly `__Host-fraud_detection_token` (definido por `POST /auth/login`).
 
-### Autenticação (2 endpoints)
+### Autenticação (3 endpoints)
 - `POST /auth/login` - Autenticar usuário e obter token JWT
 - `POST /auth/logout` - Fazer logout e limpar sessão
+- `POST /auth/refresh` - Renovar um token JWT próximo do vencimento
 
-### Gerenciamento de Sinistros (6 endpoints)
+### Sinistros (4 endpoints)
 - `POST /claims` - Enviar sinistro com detecção de fraude ML
+- `GET /claims` - Listar sinistros
 - `GET /claims/{claim_id}` - Obter detalhes do sinistro
-- `GET /claimants/{claimant_id}/claims` - Obter histórico de sinistros do segurado
-- `GET /claimants/{claimant_id}/risk-score` - Obter pontuação de risco alimentada por ML
-- `GET /claimants/{claimant_id}/claim-velocity` - Analisar frequência de sinistros
+- `GET /claims/{claim_id}/graph` - Obter o sinistro com seu grafo de vizinhança completo
+
+### Segurados (6 endpoints)
+- `GET /claimants` - Listar segurados
+- `GET /claimants/{claimant_id}` - Obter detalhes do segurado
+- `GET /claimants/{claimant_id}/claims` - Histórico de sinistros do segurado
+- `GET /claimants/{claimant_id}/risk-score` - Pontuação de risco alimentada por ML
+- `GET /claimants/{claimant_id}/claim-velocity` - Análise de frequência de sinistros
 - `GET /claimants/{claimant_id}/fraud-analysis` - Análise abrangente de fraude
 
-### Padrões de Fraude (4 endpoints)
-- `GET /fraud-patterns/collision-rings` - Detectar 6 tipos de fraude de anéis de colisão (acidentes encenados, swoop & squat, passageiros falsos, colisões de papel, advogados corruptos, empresas de reboque corruptas)
-- `GET /fraud-patterns/professional-witnesses` - Encontrar testemunhas repetidas
-- `GET /fraud-patterns/collusion-indicators` - Identificar conluio
-- `GET /fraud-patterns/cross-claim-patterns` - Fraude entre sinistros
+### Anéis de Colisão (6 endpoints)
+- `GET /collision-rings/staged-accidents` - Anéis de acidentes forjados
+- `GET /collision-rings/swoop-and-squat` - Manobras swoop & squat
+- `GET /collision-rings/stuffed-passengers` - Segurados passageiros falsos (jump-ins)
+- `GET /collision-rings/paper-collisions` - Acidentes fantasma sem boletim de ocorrência
+- `GET /collision-rings/corrupt-attorneys` - Escritórios que direcionam segurados para anéis
+- `GET /collision-rings/corrupt-tow-companies` - Empresas de reboque que direcionam vítimas a oficinas fraudulentas
 
-### Redes de Fraude (4 endpoints)
-- `GET /fraud-networks/influential-claimants` - Encontrar centros de rede
-- `GET /fraud-networks/organized-rings` - Detectar fraude organizada
-- `GET /fraud-networks/connections` - Mapear conexões de fraudadores
-- `GET /fraud-networks/isolated-rings` - Encontrar grupos de fraude isolados
+### Fraude de Rede (8 endpoints)
+- `GET /network-fraud/professional-witnesses` - Testemunhas recorrentes entre sinistros
+- `GET /network-fraud/organized-rings` - Redes de fraude densamente conectadas
+- `GET /network-fraud/fraud-hubs` - Oficinas, provedores e advogados articulando múltiplos anéis
+- `GET /network-fraud/collusion-indicators` - Triângulos de conluio entre três entidades
+- `GET /network-fraud/isolated-rings` - Clusters de fraude independentes
+- `GET /network-fraud/cross-claim-patterns/{claimant_id}` - Padrões de fraude entre sinistros para um segurado
+- `GET /network-fraud/medical-providers/{provider_id}` - Grafo de vizinhança do provedor
+- `GET /network-fraud/medical-providers/{provider_id}/fraud-analysis` - Análise de fraude do provedor
+
+### Análise Avançada (2 endpoints)
+- `GET /advanced-analysis/influential-claimants` - Segurados de alto grau (centros de rede)
+- `GET /advanced-analysis/connections` - Grafo de conexões entre fraudadores
+
+### Consulta de Entidades (4 endpoints)
+- `GET /entity-lookup/repair-shops/{shop_id}` - Grafo de vizinhança da oficina
+- `GET /entity-lookup/repair-shops/{shop_id}/statistics` - Estatísticas de fraude da oficina
+- `GET /entity-lookup/vehicles/{vehicle_id}` - Grafo de vizinhança do veículo
+- `GET /entity-lookup/vehicles/{vehicle_id}/fraud-history` - Histórico de fraude do veículo
 
 ### Analítica (4 endpoints)
-- `GET /analytics/fraud-trends` - Tendências de fraude ao longo do tempo
-- `GET /analytics/geographic-hotspots` - Concentração geográfica de fraude
+- `GET /analytics/fraud-trends` - Estatísticas de resumo de fraude, incluindo exposição estimada
+- `GET /analytics/geographic-hotspots` - Concentração geográfica de fraude com sub-grafos por entidade
 - `GET /analytics/claim-amount-anomalies` - Detecção de anomalias alimentada por ML
 - `GET /analytics/temporal-patterns` - Padrões de fraude baseados em tempo
 
-### Análise de Entidades (3 endpoints)
-- `GET /repair-shops/{shop_id}/statistics` - Estatísticas de fraude da oficina
-- `GET /repair-shops/fraud-hubs` - Alias legado para centros de fraude (apenas oficinas)
-- `GET /fraud-networks/hubs` - Identificar centros de fraude em oficinas, provedores médicos e advogados
-- `GET /vehicles/{vehicle_id}` - Grafo de vizinhança do veículo
-- `GET /vehicles/{vehicle_id}/fraud-history` - Histórico de fraude do veículo
-- `GET /medical-providers/{provider_id}/fraud-analysis` - Análise de fraude do provedor
+### Listas de Entidades (7 endpoints)
+- `GET /attorneys` - Listar advogados
+- `GET /witnesses` - Listar testemunhas
+- `GET /passengers` - Listar passageiros
+- `GET /tow-companies` - Listar empresas de reboque
+- `GET /medical-providers` - Listar provedores médicos
+- `GET /repair-shops` - Listar oficinas
+- `GET /vehicles` - Listar veículos
 
 ## Capacidades de Detecção de Fraude
 
@@ -366,16 +397,16 @@ API_ENDPOINT="https://SEU-API-ENDPOINT/prod"
 curl $API_ENDPOINT/analytics/fraud-trends
 
 # Detectar anéis de colisão
-curl $API_ENDPOINT/fraud-patterns/collision-rings
+curl $API_ENDPOINT/collision-rings/staged-accidents
 
 # Encontrar segurados influentes
-curl $API_ENDPOINT/fraud-networks/influential-claimants
+curl $API_ENDPOINT/advanced-analysis/influential-claimants
 
 # Analisar risco de segurado específico
 curl $API_ENDPOINT/claimants/{claimant-id}/risk-score
 ```
 
-Veja [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para todos os 21 endpoints com documentação detalhada.
+Veja [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para todos os 44 endpoints com documentação detalhada.
 
 ## Pipeline de Treinamento ML
 
@@ -390,7 +421,7 @@ aws stepfunctions describe-execution \
 ```
 
 **Quais endpoints requerem treinamento ML?**
-- ✅ **Funcionam imediatamente** (Algoritmos de grafos - 9 endpoints): collision-rings, professional-witnesses, influential-claimants, organized-rings, fraud-hubs, connections, collusion-indicators, isolated-rings, cross-claim-patterns
+- ✅ **Funcionam imediatamente** (Algoritmos de grafos - 14 endpoints): staged-accidents, swoop-and-squat, stuffed-passengers, paper-collisions, corrupt-attorneys, corrupt-tow-companies, professional-witnesses, organized-rings, fraud-hubs, collusion-indicators, isolated-rings, cross-claim-patterns, influential-claimants, connections
 - ⏳ **Disponíveis após o treinamento** (Alimentados por ML - 5 endpoints): submit-claim (pontuação de fraude), risk-score, vehicle-fraud-history, medical-provider-fraud-analysis, claim-amount-anomalies
 
 **Você pode testar os endpoints de algoritmos de grafos imediatamente. Os endpoints alimentados por ML estarão disponíveis assim que o treinamento for concluído (~1-2 horas).**
@@ -424,7 +455,7 @@ Custos mensais aproximados (us-east-1) com configuração padrão:
 
 **Computação e Banco de Dados:**
 - Neptune db.t3.medium: ~$70/mês (730 horas × $0.096/hora)
-- Lambda (14 funções): ~$5/mês (1M invocações, 512MB, 3s média)
+- Lambda (16 funções): ~$5/mês (1M invocações, 512MB, 3s média)
 - AWS Batch: ~$2/mês (trabalhos de exportação mensais)
 
 **Rede:**

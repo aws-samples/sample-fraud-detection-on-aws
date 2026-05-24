@@ -224,6 +224,11 @@ Resources:
       Parameters:
         neptune_ml_iam_role: !Ref NeptuneMLRoleArn
         neptune_enable_audit_log: 1
+        # Enable the Neptune result cache. Read-only traversals tagged with
+        # the Neptune#useCache hint will have their results cached server-side
+        # across subsequent identical queries. The cache is invalidated on
+        # writes, so correctness is preserved.
+        neptune_result_cache: 1
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-Neptune-ParamGroup'

@@ -15,6 +15,10 @@ Parameters:
     Type: String
     Description: 'API Gateway endpoint URL for CSP connect-src directive'
 
+  APIGatewayDomain:
+    Type: String
+    Description: 'API Gateway domain name (without protocol, e.g. abc123.execute-api.us-east-2.amazonaws.com)'
+
 Conditions:
   HasCloudFrontWAF: !Not [!Equals [!Ref CloudFrontWebACLArn, '']]
 
@@ -43,7 +47,12 @@ Resources:
             ReferrerPolicy: strict-origin-when-cross-origin
             Override: true
           ContentSecurityPolicy:
-            ContentSecurityPolicy: !Sub "default-src 'self'; script-src 'self' 'unsafe-inline' https://d3js.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ${APIEndpoint} https://cdn.jsdelivr.net; frame-ancestors 'none';"
+            # connect-src 'self' is sufficient because the frontend now
+            # calls the API through the same CloudFront origin (see /prod/*
+            # behavior on the distribution). This keeps the browser cookie
+            # flow first-party, which is required in the face of modern
+            # third-party cookie blocking.
+            ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' https://d3js.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none';"
             Override: true
 
   FrontendBucket:
@@ -120,6 +129,16 @@ Resources:
             DomainName: !GetAtt FrontendBucket.RegionalDomainName
             S3OriginConfig: {}
             OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
+          - Id: APIOrigin
+            # The API Gateway is reached via CloudFront so that the browser
+            # treats frontend + API as first-party. This makes the httpOnly
+            # auth cookie same-site (and therefore immune to third-party
+            # cookie blocking in Safari/Chrome/Firefox).
+            DomainName: !Ref APIGatewayDomain
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              HTTPSPort: 443
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https
@@ -128,6 +147,18 @@ Resources:
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
           Compress: true
+        CacheBehaviors:
+          - PathPattern: '/prod/*'
+            TargetOriginId: APIOrigin
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            # AWS-managed "CachingDisabled" policy — don't cache API responses
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # AWS-managed "AllViewerExceptHostHeader" — forward all headers
+            # (incl. Cookie, Authorization) and all query params to the origin
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            Compress: true
         CustomErrorResponses:
           - ErrorCode: 404
             ResponseCode: 200

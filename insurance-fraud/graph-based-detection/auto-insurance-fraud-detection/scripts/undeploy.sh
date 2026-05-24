@@ -256,6 +256,21 @@ echo ""
 echo "🛡️  Step 6/6: Deleting CloudFront WAF from us-east-1..."
 aws cloudformation delete-stack --stack-name $CLOUDFRONT_WAF_STACK --profile $PROFILE --region us-east-1 2>/dev/null || true
 aws cloudformation wait stack-delete-complete --stack-name $CLOUDFRONT_WAF_STACK --profile $PROFILE --region us-east-1 2>/dev/null || true
+
+# Verify no orphaned WAF WebACL remains (CloudFormation may delete the stack
+# but leave the WAF resource behind if it was in use by CloudFront)
+WAF_ID=$(aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --profile $PROFILE \
+  --query "WebACLs[?contains(Name, 'auto-insurance-cloudfront-waf')].Id" --output text 2>/dev/null)
+if [ -n "$WAF_ID" ] && [ "$WAF_ID" != "None" ]; then
+  echo "  → Orphaned WAF WebACL found ($WAF_ID), deleting..."
+  WAF_NAME=$(aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --profile $PROFILE \
+    --query "WebACLs[?Id=='${WAF_ID}'].Name" --output text 2>/dev/null)
+  WAF_LOCK=$(aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --profile $PROFILE \
+    --query "WebACLs[?Id=='${WAF_ID}'].LockToken" --output text 2>/dev/null)
+  aws wafv2 delete-web-acl --name "$WAF_NAME" --scope CLOUDFRONT --id "$WAF_ID" \
+    --lock-token "$WAF_LOCK" --region us-east-1 --profile $PROFILE 2>/dev/null || true
+  echo "  ✓ Orphaned WAF WebACL deleted"
+fi
 echo "✅ CloudFront WAF deleted!"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

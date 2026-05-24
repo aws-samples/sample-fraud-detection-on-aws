@@ -16,14 +16,6 @@ cognito = boto3.client('cognito-idp')
 
 USER_POOL_ID = os.environ['USER_POOL_ID']
 CLIENT_ID = os.environ['CLIENT_ID']
-DEMO_USERS = os.environ.get('DEMO_USERS', '').split(',')
-
-
-@app.get("/auth/users")
-@tracer.capture_method
-def get_users():
-    users = [{'email': email.strip()} for email in DEMO_USERS if email.strip()]
-    return {'users': users}
 
 
 @app.post("/auth/logout")
@@ -33,7 +25,7 @@ def logout():
         status_code=200,
         content_type='application/json',
         body=json.dumps({'success': True}),
-        headers={'Set-Cookie': 'fraud_detection_token=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/'}
+        headers={'Set-Cookie': '__Host-fraud_detection_token=; HttpOnly; Secure; SameSite=None; Max-Age=0; Path=/'}
     )
 
 
@@ -85,7 +77,7 @@ def login():
             content_type='application/json',
             body=json.dumps({'token': token, 'refreshToken': refresh_token, 'expiresIn': expires_in}),
             headers={
-                'Set-Cookie': f'fraud_detection_token={token}; HttpOnly; Secure; SameSite=Strict; Max-Age={expires_in}; Path=/',
+                'Set-Cookie': f'__Host-fraud_detection_token={token}; HttpOnly; Secure; SameSite=None; Max-Age={expires_in}; Path=/',
                 'Access-Control-Expose-Headers': 'Set-Cookie'
             }
         )

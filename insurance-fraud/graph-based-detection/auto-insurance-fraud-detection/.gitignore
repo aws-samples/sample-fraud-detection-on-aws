@@ -1,0 +1,28 @@
+# Lambda build artifacts — regenerated on every deploy.sh run
+lambda-functions/**/package/
+lambda-functions/**/deployment.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Deploy-time generated config (written by scripts/generate-frontend-config.sh)
+# Keep this commented — config.js IS checked in because it's part of the sample
+# and is auto-generated only on deploy. Uncomment if you want to ignore it:
+# frontend/js/config.js
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Auth-script artifacts
+.auth-token
+.auth-cookie

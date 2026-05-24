@@ -35,10 +35,13 @@ class App {
         return key ? `<p class="fraud-description" data-i18n="${key}">${i18n.t(key)}</p>` : '';
     }
 
-    getViewDescription(descKey, rationaleKey) {
+    getViewDescription(descKey, rationaleKey, howGraphKey) {
         let html = descKey ? `<p class="fraud-description" data-i18n="${descKey}">${i18n.t(descKey)}</p>` : '';
         if (rationaleKey && rationaleKey !== descKey) {
             html += `<p class="fraud-description" data-i18n="${rationaleKey}">${i18n.t(rationaleKey)}</p>`;
+        }
+        if (howGraphKey && howGraphKey !== descKey && howGraphKey !== rationaleKey) {
+            html += `<p class="fraud-description" data-i18n="${howGraphKey}">${i18n.t(howGraphKey)}</p>`;
         }
         return html;
     }
@@ -91,10 +94,27 @@ class App {
 
         try {
             switch(viewName) {
-                // Fraud Patterns (no parameters)
-                case 'collision-rings':
-                    await this.showCollisionRings();
+                // Collision Rings (6 sub-patterns)
+                case 'staged-accidents':
+                    await this.showStagedAccidents();
                     break;
+                case 'swoop-and-squat':
+                    await this.showSwoopAndSquat();
+                    break;
+                case 'stuffed-passengers':
+                    await this.showStuffedPassengers();
+                    break;
+                case 'paper-collisions':
+                    await this.showPaperCollisions();
+                    break;
+                case 'corrupt-attorneys':
+                    await this.showCorruptAttorneys();
+                    break;
+                case 'corrupt-tow-companies':
+                    await this.showCorruptTowCompanies();
+                    break;
+
+                // Fraud Patterns (no parameters)
                 case 'professional-witnesses':
                     await this.showProfessionalWitnesses();
                     break;
@@ -169,10 +189,44 @@ class App {
     }
 
     // Fraud Pattern views
-    async showCollisionRings() {
-        const data = await api.getCollisionRings();
-        this.renderGraphView('collisionRings', data);
+    async _showCollisionRingSubPattern(titleKey, worksKey, howKey, apiMethod) {
+        const container = document.getElementById('viewContainer');
+        container.innerHTML = DOMPurify.sanitize(`<div class="loading">${i18n.t('loading')}</div>`);
+        try {
+            const data = await apiMethod.call(api);
+            const title = i18n.t(titleKey);
+            container.innerHTML = DOMPurify.sanitize(`
+                <div class="view-header">
+                    <h2 data-i18n="${titleKey}">${title}</h2>
+                    <p class="fraud-description" data-i18n="${worksKey}">${i18n.t(worksKey)}</p>
+                    <p class="fraud-description" data-i18n="${howKey}">${i18n.t(howKey)}</p>
+                </div>
+                <div class="modal-dialog" style="position:relative;margin:20px auto;max-height:none;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">${title}</h2>
+                    </div>
+                    <div class="modal-content">
+                        <div class="view-header">
+                            ${this.legendHTML()}
+                        </div>
+                        <div id="graphContainer" class="graph-container" style="min-height:500px;"></div>
+                    </div>
+                </div>
+            `);
+            this.graph = new GraphVisualizer('graphContainer');
+            const graphData = this.transformToGraphData(data);
+            this.graph.renderGraph(graphData);
+        } catch (error) {
+            container.innerHTML = DOMPurify.sanitize(`<div class="error">${i18n.t('error')}: ${error.message}</div>`);
+        }
     }
+
+    showStagedAccidents()     { return this._showCollisionRingSubPattern('crSubStaged',           'crSubStagedWorks',           'crSubStagedHow',           api.getStagedAccidents); }
+    showSwoopAndSquat()       { return this._showCollisionRingSubPattern('crSubSwoopSquat',       'crSubSwoopSquatWorks',       'crSubSwoopSquatHow',       api.getSwoopAndSquat); }
+    showStuffedPassengers()   { return this._showCollisionRingSubPattern('crSubStuffed',          'crSubStuffedWorks',          'crSubStuffedHow',          api.getStuffedPassengers); }
+    showPaperCollisions()     { return this._showCollisionRingSubPattern('crSubPaper',            'crSubPaperWorks',            'crSubPaperHow',            api.getPaperCollisions); }
+    showCorruptAttorneys()    { return this._showCollisionRingSubPattern('crSubCorruptAttorney',  'crSubCorruptAttorneyWorks',  'crSubCorruptAttorneyHow',  api.getCorruptAttorneys); }
+    showCorruptTowCompanies() { return this._showCollisionRingSubPattern('crSubCorruptTow',       'crSubCorruptTowWorks',       'crSubCorruptTowHow',       api.getCorruptTowCompanies); }
 
     async showProfessionalWitnesses() {
         const data = await api.getProfessionalWitnesses();
@@ -201,6 +255,8 @@ class App {
                 <div class="view-header">
                     <h2 data-i18n="crossClaimPatterns">${i18n.t('crossClaimPatterns')}</h2>
                     <p class="fraud-description" data-i18n="descCrossClaimPatterns">${i18n.t('descCrossClaimPatterns')}</p>
+                    <p class="fraud-description" data-i18n="rationaleCrossClaimPatterns">${i18n.t('rationaleCrossClaimPatterns')}</p>
+                    <p class="fraud-description" data-i18n="howGraphCrossClaimPatterns">${i18n.t('howGraphCrossClaimPatterns')}</p>
                 </div>
                 <div class="form-container">
                     <div class="form-group">
@@ -418,6 +474,7 @@ class App {
                     <h2 data-i18n="organizedRings">${i18n.t('organizedRings')}</h2>
                     <p class="fraud-description" data-i18n="descOrganizedRings">${i18n.t('descOrganizedRings')}</p>
                     <p class="fraud-description" data-i18n="rationaleOrganizedRings">${i18n.t('rationaleOrganizedRings')}</p>
+                    <p class="fraud-description" data-i18n="howGraphOrganizedRings">${i18n.t('howGraphOrganizedRings')}</p>
                 </div>
             `);
             
@@ -563,6 +620,7 @@ class App {
                     <h2 data-i18n="isolatedRings">${i18n.t('isolatedRings')}</h2>
                     <p class="fraud-description" data-i18n="descIsolatedRings">${i18n.t('descIsolatedRings')}</p>
                     <p class="fraud-description" data-i18n="rationaleIsolatedRings">${i18n.t('rationaleIsolatedRings')}</p>
+                    <p class="fraud-description" data-i18n="howGraphIsolatedRings">${i18n.t('howGraphIsolatedRings')}</p>
                 </div>
                 <div class="form-container">
                     <div class="form-group">
@@ -841,17 +899,24 @@ class App {
         container.innerHTML = DOMPurify.sanitize(`<div class="loading">${i18n.t('loading')}</div>`);
         const data = await api.getGeographicHotspots();
 
+        const zones = data.zones || [];
+        const entities = data.hotspotEntities || {};
+        const graph = data.graph || { nodes: [], edges: [] };
+        const insight = data.insight || '';
+
         const tabs = [
+            { key: 'zones',            label: 'Fraud Zones' },
             { key: 'repairShops',      label: 'Repair Shops' },
             { key: 'medicalProviders', label: 'Medical Providers' },
-            { key: 'attorneys',        label: 'Attorneys' },
             { key: 'towCompanies',     label: 'Tow Companies' },
+            { key: 'graph',            label: 'Hotspot Graph' },
         ];
 
         container.innerHTML = DOMPurify.sanitize(`
             <div class="view-header">
                 <h2 data-i18n="geographicHotspots">${i18n.t('geographicHotspots')}</h2>
                 <p class="fraud-description" data-i18n="descGeographicHotspots">${i18n.t('descGeographicHotspots')}</p>
+                ${insight ? `<p class="fraud-description"><strong>🔍 ${insight}</strong></p>` : ''}
             </div>
             <div class="tab-bar">
                 ${tabs.map((t, i) => `<button class="tab-btn${i === 0 ? ' active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
@@ -860,51 +925,99 @@ class App {
         `);
 
         const renderTab = (key) => {
-            const tabData = data[key] || { nodes: [], edges: [] };
             const content = document.getElementById('hotspotContent');
             content.innerHTML = '';
 
-            // Extract hub nodes (non-claimant, non-claim) to build per-entity cards
-            const hubNodes = (tabData.nodes || []).filter(n => n.type !== 'claimant' && n.type !== 'claim' && n.type !== 'passenger');
-
-            if (!hubNodes.length) {
-                content.innerHTML = DOMPurify.sanitize('<div class="info">No data found for this entity type.</div>');
-                return;
-            }
-
-            hubNodes.forEach((hub, index) => {
-                // Build sub-graph: hub node + its direct neighbors
-                const hubId = hub.id;
-                const neighborIds = new Set(
-                    (tabData.edges || [])
-                        .filter(e => e.source === hubId || e.target === hubId)
-                        .map(e => e.source === hubId ? e.target : e.source)
-                );
-                const subNodes = [hub, ...(tabData.nodes || []).filter(n => neighborIds.has(n.id))];
-                const subEdges = (tabData.edges || []).filter(e => e.source === hubId || e.target === hubId);
-
+            if (key === 'zones') {
+                if (!zones.length) {
+                    content.innerHTML = DOMPurify.sanitize('<div class="info">No geographic data available.</div>');
+                    return;
+                }
+                const table = document.createElement('div');
+                table.className = 'modal-dialog';
+                table.style.cssText = 'position:relative;margin:20px auto;max-height:none;';
+                const fraudZones = zones.filter(z => z.fraudDensity > 0);
+                table.innerHTML = DOMPurify.sanitize(`
+                    <div class="modal-header"><h2 class="modal-title">Fraud Density by ZIP Code</h2></div>
+                    <div class="modal-content">
+                        <table class="data-table" style="width:100%;border-collapse:collapse;">
+                            <thead><tr>
+                                <th style="padding:8px;text-align:left;">ZIP Code</th>
+                                <th style="padding:8px;text-align:center;">Total Accidents</th>
+                                <th style="padding:8px;text-align:center;">Fraud Accidents</th>
+                                <th style="padding:8px;text-align:center;">Fraud Density</th>
+                                <th style="padding:8px;text-align:center;">Coordinates</th>
+                            </tr></thead>
+                            <tbody>
+                                ${fraudZones.map(z => `<tr style="border-bottom:1px solid var(--border-color);">
+                                    <td style="padding:8px;font-weight:bold;">${z.zipCode}</td>
+                                    <td style="padding:8px;text-align:center;">${z.totalAccidents}</td>
+                                    <td style="padding:8px;text-align:center;color:var(--danger-color);">${z.fraudAccidents}</td>
+                                    <td style="padding:8px;text-align:center;">
+                                        <span class="badge ${z.fraudDensity > 0.5 ? 'badge-danger' : z.fraudDensity > 0.2 ? 'badge-warning' : 'badge-info'}">${(z.fraudDensity * 100).toFixed(1)}%</span>
+                                    </td>
+                                    <td style="padding:8px;text-align:center;font-size:0.85em;">${z.latitude?.toFixed(4)}, ${z.longitude?.toFixed(4)}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `);
+                content.appendChild(table);
+            } else if (key === 'graph') {
+                if (!graph.nodes.length) {
+                    content.innerHTML = DOMPurify.sanitize('<div class="info">No graph data for hotspot zone.</div>');
+                    return;
+                }
                 const card = document.createElement('div');
                 card.className = 'modal-dialog';
                 card.style.cssText = 'position:relative;margin:20px auto;max-height:none;';
                 card.innerHTML = DOMPurify.sanitize(`
-                    <div class="modal-header">
-                        <h2 class="modal-title">${hub.name || hub.id}</h2>
-                    </div>
+                    <div class="modal-header"><h2 class="modal-title">Top Fraud Zone — Network Graph</h2></div>
                     <div class="modal-content">
                         <div class="view-header">${this.legendHTML(true)}</div>
-                        <div id="hotspot-graph-${key}-${index}" class="graph-container" style="min-height:400px;"></div>
+                        <div id="hotspot-zone-graph" class="graph-container" style="min-height:500px;"></div>
                     </div>
                 `);
                 content.appendChild(card);
-
-                if (subNodes.length > 1) {
-                    const viz = new GraphVisualizer(`hotspot-graph-${key}-${index}`);
-                    viz.renderGraph({ nodes: subNodes, edges: subEdges });
+                const viz = new GraphVisualizer('hotspot-zone-graph');
+                viz.renderGraph(graph);
+            } else {
+                const entityList = entities[key] || [];
+                if (!entityList.length) {
+                    content.innerHTML = DOMPurify.sanitize('<div class="info">No suspicious entities in fraud hotspot zones.</div>');
+                    return;
                 }
-            });
+                const card = document.createElement('div');
+                card.className = 'modal-dialog';
+                card.style.cssText = 'position:relative;margin:20px auto;max-height:none;';
+                card.innerHTML = DOMPurify.sanitize(`
+                    <div class="modal-header"><h2 class="modal-title">Entities in Fraud Hotspot Zones</h2></div>
+                    <div class="modal-content">
+                        <table class="data-table" style="width:100%;border-collapse:collapse;">
+                            <thead><tr>
+                                <th style="padding:8px;text-align:left;">Name</th>
+                                <th style="padding:8px;text-align:center;">ZIP Code</th>
+                                <th style="padding:8px;text-align:center;">Fraud Score</th>
+                                <th style="padding:8px;text-align:center;">Coordinates</th>
+                            </tr></thead>
+                            <tbody>
+                                ${entityList.map(e => `<tr style="border-bottom:1px solid var(--border-color);">
+                                    <td style="padding:8px;">${e.name}</td>
+                                    <td style="padding:8px;text-align:center;">${e.zipCode}</td>
+                                    <td style="padding:8px;text-align:center;">
+                                        <span class="badge ${e.fraudScore > 0.7 ? 'badge-danger' : e.fraudScore > 0.4 ? 'badge-warning' : 'badge-info'}">${(e.fraudScore * 100).toFixed(0)}%</span>
+                                    </td>
+                                    <td style="padding:8px;text-align:center;font-size:0.85em;">${e.latitude?.toFixed(4)}, ${e.longitude?.toFixed(4)}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `);
+                content.appendChild(card);
+            }
         };
 
-        renderTab('repairShops');
+        renderTab('zones');
 
         container.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1083,6 +1196,7 @@ class App {
                     <h2>${i18n.t('fraudHubs')}</h2>
                     <p class="fraud-description">${i18n.t('descFraudHubs')}</p>
                     <p class="fraud-description">${i18n.t('rationaleFraudHubs')}</p>
+                    <p class="fraud-description" data-i18n="howGraphFraudHubs">${i18n.t('howGraphFraudHubs')}</p>
                 </div>
                 <div class="tab-bar">
                     ${tabs.map((t, i) => `<button class="tab-btn${i===0?' active':''}" data-tab="${t.key}">${t.label}</button>`).join('')}
@@ -1326,26 +1440,31 @@ class App {
                             api.getClaimantRiskScore(id)
                         ]);
                         
-                        // Render risk metrics
+                        // Render risk metrics (defensive defaults for claimants with no history)
+                        const riskScore = riskData.riskScore ?? 0;
+                        const totalClaims = riskData.totalClaims ?? 0;
+                        const rejectedClaims = riskData.rejectedClaims ?? 0;
+                        const rejectionRate = riskData.rejectionRate ?? 0;
+                        const totalClaimAmount = riskData.totalClaimAmount ?? 0;
                         const metricsContainer = document.getElementById('riskMetrics');
-                        const riskClass = riskData.riskScore > 0.7 ? 'high' : riskData.riskScore > 0.5 ? 'medium' : 'low';
+                        const riskClass = riskScore > 0.7 ? 'high' : riskScore > 0.5 ? 'medium' : 'low';
                         metricsContainer.innerHTML = DOMPurify.sanitize(`
                             <div class="metrics-grid">
                                 <div class="metric-card">
                                     <div class="metric-label">Risk Score</div>
-                                    <div class="metric-value"><span class="risk-badge risk-${riskClass}">${(riskData.riskScore * 100).toFixed(0)}%</span></div>
+                                    <div class="metric-value"><span class="risk-badge risk-${riskClass}">${(riskScore * 100).toFixed(0)}%</span></div>
                                 </div>
                                 <div class="metric-card">
                                     <div class="metric-label">Total Claims</div>
-                                    <div class="metric-value">${riskData.totalClaims}</div>
+                                    <div class="metric-value">${totalClaims}</div>
                                 </div>
                                 <div class="metric-card">
                                     <div class="metric-label">Rejected</div>
-                                    <div class="metric-value">${riskData.rejectedClaims} (${(riskData.rejectionRate * 100).toFixed(0)}%)</div>
+                                    <div class="metric-value">${rejectedClaims} (${(rejectionRate * 100).toFixed(0)}%)</div>
                                 </div>
                                 <div class="metric-card">
                                     <div class="metric-label">Total Amount</div>
-                                    <div class="metric-value">$${riskData.totalClaimAmount.toLocaleString()}</div>
+                                    <div class="metric-value">$${totalClaimAmount.toLocaleString()}</div>
                                 </div>
                             </div>
                         `);
@@ -1360,7 +1479,14 @@ class App {
                         const graphData = this.transformToGraphData(analysisData);
                         this.graph.renderGraph(graphData);
                     } catch (error) {
-                        document.getElementById('graphContainer').innerHTML = DOMPurify.sanitize(`&lt;div class="error"&gt;Error: ${error.message}&lt;/div&gt;`);
+                        // Show error on the main form (modal may not have been opened yet)
+                        const errBanner = document.createElement('div');
+                        errBanner.className = 'error';
+                        errBanner.style.marginTop = '1em';
+                        errBanner.textContent = `${i18n.t('error')}: ${error.message}`;
+                        // Replace any previous error
+                        document.querySelectorAll('.form-container + .error').forEach(el => el.remove());
+                        document.querySelector('.form-container').after(errBanner);
                     } finally {
                         viewBtn.disabled = false;
                         viewBtn.textContent = i18n.t('analyze');
@@ -1408,27 +1534,27 @@ class App {
 
     async showModalSelectForm(title, titleKey, entityType, callback) {
         const _descMap = {
-        collisionRings:    ['descCollisionRings',    'rationaleCollisionRings'],
-        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses'],
-        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators'],
+        collisionRings:    ['descCollisionRings'],
+        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses', 'howGraphProfessionalWitnesses'],
+        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators',   'howGraphCollusionIndicators'],
         fraudTrends:       ['descFraudTrends',       'rationaleFraudTrends'],
         geographicHotspots:['descGeographicHotspots','rationaleGeographicHotspots'],
         claimAnomalies:    ['descClaimAnomalies',    'rationaleClaimAnomalies'],
-        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs'],
+        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs',         'howGraphFraudHubs'],
         claimDetails:      ['descClaimDetails',      null],
         riskScore:         ['descRiskScore',         null],
         claimVelocity:     ['descClaimVelocity',     null],
         repairShopStats:   ['descRepairShopStats',   null],
         vehicleFraudHistory:['descVehicleFraudHistory',null],
-        medicalProviderFraud:['descMedicalProviderFraud',null],
-        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns'],
+        medicalProviderFraud:['descMedicalProviderFraud',null,                          'howGraphMedicalProviderFraud'],
+        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns','howGraphCrossClaimPatterns'],
         temporalPatterns:  ['descTemporalPatterns',  'rationaleTemporalPatterns'],
         connections:       ['descConnections',       'rationaleConnections'],
-        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings'],
-        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings'],
+        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings',     'howGraphIsolatedRings'],
+        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings',    'howGraphOrganizedRings'],
         influentialClaimants:['descInfluentialClaimants',null],
     };
-        const [_dk, _rk] = _descMap[titleKey] || [null, null];
+        const [_dk, _rk, _hk] = _descMap[titleKey] || [null, null, null];
         const container = document.getElementById('viewContainer');
         container.innerHTML = DOMPurify.sanitize(`<div class=\"loading\">${i18n.t('loading')}</div>`);
         
@@ -1486,7 +1612,7 @@ class App {
             container.innerHTML = DOMPurify.sanitize(`
                 <div class="view-header">
                     <h2>${title}</h2>
-                    ${this.getViewDescription(_dk, _rk) || this.getFraudDescription(entityType)}
+                    ${this.getViewDescription(_dk, _rk, _hk) || this.getFraudDescription(entityType)}
                 </div>
                 <div class="form-container">
                     <div class="form-group">
@@ -1707,33 +1833,33 @@ class App {
 
     async showEntitySelectForm(titleKey, entityType, callback) {
         const _descMap = {
-        collisionRings:    ['descCollisionRings',    'rationaleCollisionRings'],
-        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses'],
-        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators'],
+        collisionRings:    ['descCollisionRings'],
+        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses', 'howGraphProfessionalWitnesses'],
+        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators',   'howGraphCollusionIndicators'],
         fraudTrends:       ['descFraudTrends',       'rationaleFraudTrends'],
         geographicHotspots:['descGeographicHotspots','rationaleGeographicHotspots'],
         claimAnomalies:    ['descClaimAnomalies',    'rationaleClaimAnomalies'],
-        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs'],
+        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs',         'howGraphFraudHubs'],
         claimDetails:      ['descClaimDetails',      null],
         riskScore:         ['descRiskScore',         null],
         claimVelocity:     ['descClaimVelocity',     null],
         repairShopStats:   ['descRepairShopStats',   null],
         vehicleFraudHistory:['descVehicleFraudHistory',null],
-        medicalProviderFraud:['descMedicalProviderFraud',null],
-        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns'],
+        medicalProviderFraud:['descMedicalProviderFraud',null,                          'howGraphMedicalProviderFraud'],
+        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns','howGraphCrossClaimPatterns'],
         temporalPatterns:  ['descTemporalPatterns',  'rationaleTemporalPatterns'],
         connections:       ['descConnections',       'rationaleConnections'],
-        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings'],
-        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings'],
+        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings',     'howGraphIsolatedRings'],
+        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings',    'howGraphOrganizedRings'],
         influentialClaimants:['descInfluentialClaimants',null],
     };
         const title = i18n.t(titleKey);
-        const [dk, rk] = _descMap[titleKey] || [null, null];
+        const [dk, rk, hk] = _descMap[titleKey] || [null, null, null];
         const container = document.getElementById('viewContainer');
         container.innerHTML = DOMPurify.sanitize(`
             <div class="view-header">
                 <h2>${title}</h2>
-                ${this.getViewDescription(dk, rk)}
+                ${this.getViewDescription(dk, rk, hk)}
             </div>
             <div class="form-container">
                 <div class="form-group">
@@ -1917,11 +2043,9 @@ class App {
                 const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
                 const signature = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2,'0')).join('');
 
-                const token = auth.getToken();
                 const res = await fetch(`${CONFIG.API_ENDPOINT}/claims`, {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
                         'X-Request-Timestamp': timestamp,
                         'X-Request-Signature': signature
@@ -1966,33 +2090,33 @@ class App {
 
     renderGraphView(titleKey, data) {
         const _descMap = {
-        collisionRings:    ['descCollisionRings',    'rationaleCollisionRings'],
-        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses'],
-        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators'],
+        collisionRings:    ['descCollisionRings'],
+        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses', 'howGraphProfessionalWitnesses'],
+        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators',   'howGraphCollusionIndicators'],
         fraudTrends:       ['descFraudTrends',       'rationaleFraudTrends'],
         geographicHotspots:['descGeographicHotspots','rationaleGeographicHotspots'],
         claimAnomalies:    ['descClaimAnomalies',    'rationaleClaimAnomalies'],
-        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs'],
+        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs',         'howGraphFraudHubs'],
         claimDetails:      ['descClaimDetails',      null],
         riskScore:         ['descRiskScore',         null],
         claimVelocity:     ['descClaimVelocity',     null],
         repairShopStats:   ['descRepairShopStats',   null],
         vehicleFraudHistory:['descVehicleFraudHistory',null],
-        medicalProviderFraud:['descMedicalProviderFraud',null],
-        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns'],
+        medicalProviderFraud:['descMedicalProviderFraud',null,                          'howGraphMedicalProviderFraud'],
+        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns','howGraphCrossClaimPatterns'],
         temporalPatterns:  ['descTemporalPatterns',  'rationaleTemporalPatterns'],
         connections:       ['descConnections',       'rationaleConnections'],
-        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings'],
-        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings'],
+        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings',     'howGraphIsolatedRings'],
+        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings',    'howGraphOrganizedRings'],
         influentialClaimants:['descInfluentialClaimants',null],
     };
         const title = i18n.t(titleKey);
-        const [dk, rk] = _descMap[titleKey] || [null, null];
+        const [dk, rk, hk] = _descMap[titleKey] || [null, null, null];
         const container = document.getElementById('viewContainer');
         container.innerHTML = DOMPurify.sanitize(`
             <div class="view-header">
                 <h2>${title}</h2>
-                ${this.getViewDescription(dk, rk)}
+                ${this.getViewDescription(dk, rk, hk)}
             </div>
             <div class="modal-dialog" style="position:relative;margin:20px auto;max-height:none;">
                 <div class="modal-header">
@@ -2014,33 +2138,33 @@ class App {
 
     renderDataView(titleKey, data) {
         const _descMap = {
-        collisionRings:    ['descCollisionRings',    'rationaleCollisionRings'],
-        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses'],
-        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators'],
+        collisionRings:    ['descCollisionRings'],
+        professionalWitnesses: ['descProfessionalWitnesses', 'rationaleProfessionalWitnesses', 'howGraphProfessionalWitnesses'],
+        collusionIndicators:   ['descCollusionIndicators',   'rationaleCollusionIndicators',   'howGraphCollusionIndicators'],
         fraudTrends:       ['descFraudTrends',       'rationaleFraudTrends'],
         geographicHotspots:['descGeographicHotspots','rationaleGeographicHotspots'],
         claimAnomalies:    ['descClaimAnomalies',    'rationaleClaimAnomalies'],
-        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs'],
+        fraudHubs:         ['descFraudHubs',         'rationaleFraudHubs',         'howGraphFraudHubs'],
         claimDetails:      ['descClaimDetails',      null],
         riskScore:         ['descRiskScore',         null],
         claimVelocity:     ['descClaimVelocity',     null],
         repairShopStats:   ['descRepairShopStats',   null],
         vehicleFraudHistory:['descVehicleFraudHistory',null],
-        medicalProviderFraud:['descMedicalProviderFraud',null],
-        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns'],
+        medicalProviderFraud:['descMedicalProviderFraud',null,                          'howGraphMedicalProviderFraud'],
+        crossClaimPatterns:['descCrossClaimPatterns','rationaleCrossClaimPatterns','howGraphCrossClaimPatterns'],
         temporalPatterns:  ['descTemporalPatterns',  'rationaleTemporalPatterns'],
         connections:       ['descConnections',       'rationaleConnections'],
-        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings'],
-        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings'],
+        isolatedRings:     ['descIsolatedRings',     'rationaleIsolatedRings',     'howGraphIsolatedRings'],
+        organizedRings:    ['descOrganizedRings',    'rationaleOrganizedRings',    'howGraphOrganizedRings'],
         influentialClaimants:['descInfluentialClaimants',null],
     };
         const title = i18n.t(titleKey);
-        const [dk, rk] = _descMap[titleKey] || [null, null];
+        const [dk, rk, hk] = _descMap[titleKey] || [null, null, null];
         const container = document.getElementById('viewContainer');
         container.innerHTML = DOMPurify.sanitize(`
             <div class="view-header">
                 <h2>${title}</h2>
-                ${this.getViewDescription(dk, rk)}
+                ${this.getViewDescription(dk, rk, hk)}
             </div>
             <div class="data-container">
                 <pre>${JSON.stringify(data, null, 2)}</pre>

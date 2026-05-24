@@ -1,0 +1,2 @@
+# No third-party dependencies — this Lambda uses only boto3/botocore,
+# which are bundled with the AWS Lambda Python runtime.

@@ -3,666 +3,1815 @@
 
 # Documentación de la API de Detección de Fraude en Seguros de Automóviles - Amazon Neptune ML
 
-Referencia completa para los 22 endpoints de detección de fraude.
+Referencia completa para los 44 endpoints de la API de detección de fraude.
 
 ## Tabla de Contenidos
 
-- [Autenticación](#autenticación)
-- [Gestión de Reclamaciones (6 endpoints)](#gestión-de-reclamaciones)
-- [Patrones de Fraude (4 endpoints)](#patrones-de-fraude)
-- [Redes de Fraude (4 endpoints)](#redes-de-fraude)
+- [Información General](#información-general)
+  - [URL Base](#url-base)
+  - [Autenticación](#autenticación)
+  - [Envoltura de Respuesta](#envoltura-de-respuesta)
+  - [Formato de Respuesta de Grafo](#formato-de-respuesta-de-grafo)
+  - [Manejo de Errores](#manejo-de-errores)
+- [Autenticación (3 endpoints)](#endpoints-de-autenticación)
+  - [1. Iniciar Sesión](#1-iniciar-sesión)
+  - [2. Cerrar Sesión](#2-cerrar-sesión)
+  - [3. Refrescar Token](#3-refrescar-token)
+- [Reclamos (4 endpoints)](#reclamos)
+  - [4. Enviar Reclamo](#4-enviar-reclamo)
+  - [5. Listar Reclamos](#5-listar-reclamos)
+  - [6. Obtener Detalles del Reclamo](#6-obtener-detalles-del-reclamo)
+  - [7. Obtener Grafo de Vecindad del Reclamo](#7-obtener-grafo-de-vecindad-del-reclamo)
+- [Reclamantes (6 endpoints)](#reclamantes)
+  - [8. Listar Reclamantes](#8-listar-reclamantes)
+  - [9. Obtener Detalles del Reclamante](#9-obtener-detalles-del-reclamante)
+  - [10. Obtener Historial de Reclamos del Reclamante](#10-obtener-historial-de-reclamos-del-reclamante)
+  - [11. Obtener Puntuación de Riesgo del Reclamante](#11-obtener-puntuación-de-riesgo-del-reclamante)
+  - [12. Analizar Velocidad de Reclamos](#12-analizar-velocidad-de-reclamos)
+  - [13. Análisis Integral de Fraude](#13-análisis-integral-de-fraude)
+- [Anillos de Colisión (6 endpoints)](#anillos-de-colisión)
+  - [14. Accidentes Simulados](#14-accidentes-simulados)
+  - [15. Swoop & Squat](#15-swoop--squat)
+  - [16. Pasajeros Infiltrados](#16-pasajeros-infiltrados)
+  - [17. Colisiones de Papel](#17-colisiones-de-papel)
+  - [18. Abogados Corruptos](#18-abogados-corruptos)
+  - [19. Empresas de Grúa Corruptas](#19-empresas-de-grúa-corruptas)
+- [Fraude de Red (8 endpoints)](#fraude-de-red)
+  - [20. Testigos Profesionales](#20-testigos-profesionales)
+  - [21. Anillos Organizados](#21-anillos-organizados)
+  - [22. Centros de Fraude](#22-centros-de-fraude)
+  - [23. Indicadores de Colusión](#23-indicadores-de-colusión)
+  - [24. Anillos Aislados](#24-anillos-aislados)
+  - [25. Patrones Entre Reclamos](#25-patrones-entre-reclamos)
+  - [26. Vecindad del Proveedor Médico](#26-vecindad-del-proveedor-médico)
+  - [27. Análisis de Fraude del Proveedor Médico](#27-análisis-de-fraude-del-proveedor-médico)
+- [Análisis Avanzado (2 endpoints)](#análisis-avanzado)
+  - [28. Reclamantes Influyentes](#28-reclamantes-influyentes)
+  - [29. Conexiones entre Estafadores](#29-conexiones-entre-estafadores)
+- [Consulta de Entidades (4 endpoints)](#consulta-de-entidades)
+  - [30. Vecindad del Taller](#30-vecindad-del-taller)
+  - [31. Estadísticas del Taller](#31-estadísticas-del-taller)
+  - [32. Vecindad del Vehículo](#32-vecindad-del-vehículo)
+  - [33. Historial de Fraude del Vehículo](#33-historial-de-fraude-del-vehículo)
 - [Analítica (4 endpoints)](#analítica)
-- [Análisis de Entidades (3 endpoints)](#análisis-de-entidades)
-- [Manejo de Errores](#manejo-de-errores)
-
-## Autenticación
-
-Todos los endpoints requieren autenticación JWT vía Cognito.
-
-### Obtener Token de Autenticación
-
-```bash
-# Crear usuario y obtener token
-./scripts/authenticate.sh -u usuario@empresa.com
-
-# Usar token en las solicitudes
-export AUTH_TOKEN=$(cat .auth-token)
-curl -H "Authorization: Bearer $AUTH_TOKEN" https://API_ENDPOINT/prod/endpoint
-```
-
-**Validez del Token:**
-- Token ID: 1 hora
-- Token de Acceso: 1 hora
-- Token de Actualización: 30 días
+  - [34. Tendencias de Fraude](#34-tendencias-de-fraude)
+  - [35. Puntos Calientes Geográficos](#35-puntos-calientes-geográficos)
+  - [36. Anomalías en Montos de Reclamos](#36-anomalías-en-montos-de-reclamos)
+  - [37. Patrones Temporales](#37-patrones-temporales)
+- [Listas de Entidades (7 endpoints)](#listas-de-entidades)
+  - [38. Listar Abogados](#38-listar-abogados)
+  - [39. Listar Testigos](#39-listar-testigos)
+  - [40. Listar Pasajeros](#40-listar-pasajeros)
+  - [41. Listar Empresas de Grúa](#41-listar-empresas-de-grúa)
+  - [42. Listar Proveedores Médicos](#42-listar-proveedores-médicos)
+  - [43. Listar Talleres](#43-listar-talleres)
+  - [44. Listar Vehículos](#44-listar-vehículos)
+- [Límites de Tasa](#límites-de-tasa)
+- [Mejores Prácticas](#mejores-prácticas)
+- [Soporte](#soporte)
 
 ---
 
-## Gestión de Reclamaciones
+## Información General
 
-### 1. Enviar Reclamación
+### URL Base
 
-Enviar una nueva reclamación de seguro con detección de fraude en tiempo real.
+Todos los endpoints se sirven desde la URL del API Gateway emitida en el momento del despliegue, con el formato:
+
+```
+https://{api-id}.execute-api.{region}.amazonaws.com/prod
+```
+
+Puede recuperar el valor exacto desde la salida del despliegue o desde CloudFormation:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name auto-insurance-fraud-detection \
+  --query 'Stacks[0].Outputs[?OutputKey==`APIEndpoint`].OutputValue' \
+  --output text
+```
+
+### Autenticación
+
+Todos los endpoints excepto las tres operaciones `/auth/*` requieren una sesión válida. La autenticación se realiza enviando un JSON Web Token (JWT) emitido por el Amazon Cognito User Pool desplegado con la solución en una **cookie de sesión `httpOnly`** llamada `__Host-fraud_detection_token`. La cookie es establecida por `POST /auth/login` y está marcada como `HttpOnly; Secure; SameSite=None` para que no pueda ser accedida desde JavaScript ejecutándose en el navegador (hardening contra XSS).
+
+**Clientes de navegador** no necesitan manipular la cookie — esta fluye automáticamente en cada solicitud subsiguiente cuando se usa `credentials: 'include'`.
+
+**Clientes no-navegador** (curl, Python, etc.) deben guardar la cookie después del login y enviarla en cada solicitud:
+
+```
+Cookie: __Host-fraud_detection_token=eyJraWQiOi...
+```
+
+**Inicie sesión mediante el script auxiliar (guarda la cookie en `.auth-cookie`):**
+
+```bash
+./scripts/authenticate.sh -u user@company.com -p YourPassword123! --token-only
+```
+
+**Vigencias de tokens:**
+
+| Token | Validez |
+|-------|---------|
+| ID token | 1 hora |
+| Access token | 1 hora |
+| Refresh token | 30 días |
+
+Los tokens próximos a expirar deben refrescarse mediante `POST /auth/refresh` (endpoint 3) en lugar de reautenticarse.
+
+### Envoltura de Respuesta
+
+Las respuestas exitosas se devuelven como JSON con el estado HTTP `200`. Las respuestas de error siguen la misma estructura JSON pero con un estado `4xx`/`5xx` y un campo `error`:
+
+```json
+{
+  "error": "Claimant not found"
+}
+```
+
+### Formato de Respuesta de Grafo
+
+Los endpoints que devuelven un grafo (la mayoría de los endpoints de detección de fraude) siguen una envoltura común `{ nodes, edges }`:
+
+```json
+{
+  "nodes": [
+    {
+      "id": "string",
+      "label": "string",
+      "type": "claimant|claim|accident|vehicle|repairShop|medicalProvider|witness|attorney|towCompany|passenger",
+      "name": "string (opcional)",
+      "fraudScore": 0.73,
+      "size": 12
+    }
+  ],
+  "edges": [
+    {
+      "source": "nodeId",
+      "target": "nodeId",
+      "type": "filed_claim|for_accident|involved_vehicle|repaired_at|witnessed_by|represented_by|towed_by|passenger_in|claimed_injury|treated_by|owns"
+    }
+  ]
+}
+```
+
+Endpoints específicos pueden agregar propiedades adicionales a los nodos (p. ej., `staged`, `maneuverType`, `appearances`) — vea el esquema de respuesta de cada endpoint para más detalles.
+
+### Manejo de Errores
+
+| HTTP | Significado | Causa típica |
+|------|-------------|--------------|
+| `200` | Éxito | Solicitud procesada, el cuerpo contiene el resultado |
+| `400` | Solicitud incorrecta | Cuerpo JSON mal formado o campo requerido faltante en un `POST` |
+| `401` | No autorizado | JWT faltante, mal formado o expirado |
+| `403` | Prohibido | JWT es válido pero WAF bloqueó la solicitud (límite de tasa, detección de bots) o la ruta no existe |
+| `404` | No encontrado | La entidad referenciada (reclamante, reclamo, vehículo, proveedor, taller) no existe |
+| `500` | Error interno | Excepción de Lambda (p. ej., error Gremlin inesperado). El cuerpo de respuesta contiene `{"error": "...", "message": "..."}` con detalle |
+
+Todas las respuestas de error incluyen encabezados CORS para que sean correctamente expuestas a los clientes navegador.
+
+---
+
+## Endpoints de Autenticación
+
+### 1. Iniciar Sesión
+
+Intercambia credenciales por un token JWT.
+
+**Endpoint:** `POST /auth/login`
+
+**Autenticación:** Ninguna (así es como obtiene un token)
+
+**Cuerpo de Solicitud:**
+
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|-----------|-------------|
+| `username` | string | Sí | Nombre de usuario Cognito (email) |
+| `password` | string | Sí | Contraseña del usuario |
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -X POST https://YOUR-API/prod/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"user@company.com","password":"YourPassword123!"}'
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "token": "eyJraWQiOiJHdVh2...",
+  "refreshToken": "eyJjdHkiOiJKV1Qi...",
+  "expiresIn": 3600
+}
+```
+
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `token` | string | El ID token. Clientes de navegador pueden ignorar este valor — el servidor también establece automáticamente la cookie httpOnly `__Host-fraud_detection_token`. Clientes no-navegador pueden usar este valor para construir manualmente un encabezado `Cookie: __Host-fraud_detection_token=<token>` |
+| `refreshToken` | string | Token de larga duración para usar con `/auth/refresh` |
+| `expiresIn` | integer | Segundos hasta que el ID token expire (siempre 3600) |
+
+**Efectos Secundarios:** Se establece una cookie `httpOnly` llamada `__Host-fraud_detection_token` en la respuesta para clientes navegador.
+
+**Errores:**
+
+- `400 Bad Request` — username o password faltante
+- `401 Unauthorized` — credenciales inválidas o usuario no confirmado
+
+---
+
+### 2. Cerrar Sesión
+
+Invalida la sesión activa y limpia la cookie.
+
+**Endpoint:** `POST /auth/logout`
+
+**Autenticación:** Bearer JWT
+
+**Cuerpo de Solicitud:** Ninguno
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie -X POST https://YOUR-API/prod/auth/logout
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
+**Efectos Secundarios:** Se borra la cookie `__Host-fraud_detection_token`.
+
+**Errores:**
+
+- `401 Unauthorized` — JWT faltante o inválido
+
+---
+
+### 3. Refrescar Token
+
+Intercambia un refresh token por un ID token nuevo.
+
+**Endpoint:** `POST /auth/refresh`
+
+**Autenticación:** Ninguna (el refresh token mismo es la credencial)
+
+**Cuerpo de Solicitud:**
+
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|-----------|-------------|
+| `refreshToken` | string | Sí | El refresh token emitido previamente por `/auth/login` |
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -X POST https://YOUR-API/prod/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}"
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "token": "eyJraWQiOiJHdVh2...",
+  "expiresIn": 3600
+}
+```
+
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `token` | string | Nuevo ID token |
+| `expiresIn` | integer | Segundos hasta que este nuevo token expire |
+
+**Errores:**
+
+- `400 Bad Request` — `refreshToken` faltante
+- `401 Unauthorized` — refresh token expirado o revocado
+
+---
+
+## Reclamos
+
+### 4. Enviar Reclamo
+
+Envía un nuevo reclamo de seguro y recibe una puntuación de fraude en tiempo real por Neptune ML.
 
 **Endpoint:** `POST /claims`
 
-**Cuerpo de la Solicitud:**
-```json
-{
-  "claimAmount": 8500.00,
-  "claimantId": "claimant-12345",
-  "vehicleId": "vehicle-67890",
-  "repairShopId": "shop-abc123"
-}
+**Autenticación:** Bearer JWT (más firma HMAC opcional para socios de integración — vea los encabezados `X-Request-Timestamp` / `X-Request-Signature`)
+
+**Cuerpo de Solicitud:**
+
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|-----------|-------------|
+| `claimAmount` | number | Sí | Monto del reclamo en USD |
+| `claimantId` | string | Sí | ID del vértice Claimant existente |
+| `vehicleId` | string | Sí | ID del vértice Vehicle existente |
+| `repairShopId` | string | No | ID de RepairShop opcional |
+| `witnessId` | string | No | ID de Witness opcional |
+| `status` | string | No | Estado inicial (por defecto: `approved`) |
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie -X POST https://YOUR-API/prod/claims \
+  -H "Content-Type: application/json" \
+  -d '{"claimAmount":12500,"claimantId":"claimant-abc","vehicleId":"vehicle-xyz"}'
 ```
 
-**Respuesta:**
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "claimId": "claim-uuid",
-  "fraudScore": 0.85,
-  "status": "pending",
+  "claimId": "5f3a...",
+  "fraudScore": 0.82,
   "riskLevel": "high",
-  "timestamp": 1704067200
+  "message": "Claim submitted",
+  "mlModel": "Neptune ML",
+  "recommendation": "Escalate to investigation"
 }
 ```
 
-**Detección de Fraude:**
-- Usa Neptune ML para predicción en tiempo real
-- Analiza historial de fraude del taller
-- Verifica patrones de reclamaciones del reclamante
-- Detecta anomalías en montos
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claimId` | string | ID del vértice Claim recién creado |
+| `fraudScore` | number (0–1) | Probabilidad de fraude derivada por ML (inferencia inductiva mediante Neptune ML); fallback heurístico si ML no está disponible |
+| `riskLevel` | string | `low` (< 0.5), `medium` (0.5–0.7), `high` (> 0.7) |
+| `message` | string | Estado legible para humanos |
+| `mlModel` | string | Identificador del modelo |
+| `recommendation` | string | Acción sugerida |
+
+**Errores:**
+
+- `400 Bad Request` — falta `claimAmount`, `claimantId` o `vehicleId`
+- `404 Not Found` — reclamante o vehículo referenciado no existe
+- `500 Internal Server Error` — falla de escritura Neptune
 
 ---
 
-### 2. Obtener Detalles de Reclamación
+### 5. Listar Reclamos
 
-Recuperar información detallada sobre una reclamación específica.
+Listar todos los reclamos en el grafo.
+
+**Endpoint:** `GET /claims`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie https://YOUR-API/prod/claims
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "claims": [
+    {"id": "abc-123", "amount": 8500.00, "date": 1713283200},
+    {"id": "def-456", "amount": 3200.50, "date": 1713366000}
+  ]
+}
+```
+
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claims[].id` | string | ID del vértice Claim |
+| `claims[].amount` | number | Monto del reclamo en USD |
+| `claims[].date` | integer | Timestamp Unix epoch |
+
+**Errores:**
+
+- `401 Unauthorized` — JWT faltante o inválido
+
+---
+
+### 6. Obtener Detalles del Reclamo
+
+Recupera un único reclamo.
 
 **Endpoint:** `GET /claims/{claim_id}`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:**
+
+| Nombre | Tipo | Descripción |
+|--------|------|-------------|
+| `claim_id` | string | ID del vértice Claim |
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/claims/abc-123
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "claimId": "claim-12345",
+  "claimId": "abc-123",
   "amount": 8500.00,
   "status": "approved",
-  "fraudScore": 0.45,
-  "timestamp": 1704067200,
-  "claimant": {
-    "id": "claimant-67890",
-    "name": "Juan Pérez"
-  },
-  "vehicle": {
-    "id": "vehicle-abc",
-    "vin": "VIN1234567890"
-  },
-  "repairShop": {
-    "id": "shop-xyz",
-    "name": "Taller de Reparación"
-  }
+  "claimDate": 1713283200,
+  "isFraud": true,
+  "fraudScore": 0.85
 }
 ```
 
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claimId` | string | ID del vértice Claim |
+| `amount` | number | Monto del reclamo en USD |
+| `status` | string | `approved`, `pending`, `rejected` |
+| `claimDate` | integer | Unix epoch |
+| `isFraud` | boolean | Etiqueta de verdad de campo (para datos demo) |
+| `fraudScore` | number (0–1) | Puntuación de fraude de ML o datos almacenados |
+
+**Errores:**
+
+- `404 Not Found` — `claim_id` no está en el grafo
+
 ---
 
-### 3. Obtener Historial de Reclamaciones del Reclamante
+### 7. Obtener Grafo de Vecindad del Reclamo
 
-Recuperar todas las reclamaciones presentadas por un reclamante específico.
+Recupera un reclamo junto con su vecindad completa — accidente, vehículos, pasajeros, taller, testigos, reclamante, y cualquier proveedor médico o abogado conectado.
+
+**Endpoint:** `GET /claims/{claim_id}/graph`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `claim_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/claims/abc-123/graph
+```
+
+**Respuesta:** Envoltura de grafo (vea [Formato de Respuesta de Grafo](#formato-de-respuesta-de-grafo)). Típicamente 8–20 nodos.
+
+**Esquema de Respuesta:**
+
+Envoltura de grafo estándar con tipos de nodo incluyendo `claim`, `accident`, `vehicle`, `repairShop`, `witness`, `claimant`, `passenger`, `medicalProvider`, `attorney`, `towCompany`. Los tipos de aristas incluyen `filed_claim`, `for_accident`, `involved_vehicle`, `repaired_at`, `witnessed_by`, `passenger_in`, `claimed_injury`, `treated_by`, `represented_by`, `towed_by`.
+
+**Errores:**
+
+- `404 Not Found` — `claim_id` no está en el grafo
+
+---
+
+## Reclamantes
+
+### 8. Listar Reclamantes
+
+Listar todos los reclamantes que han presentado al menos un reclamo.
+
+**Endpoint:** `GET /claimants`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie https://YOUR-API/prod/claimants
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "claimants": [
+    {"id": "clm-abc", "name": "Claimant 12"},
+    {"id": "clm-def", "name": "Claimant 37"}
+  ]
+}
+```
+
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claimants[].id` | string | ID del vértice Claimant |
+| `claimants[].name` | string | Nombre legible |
+
+**Nota:** Los reclamantes con cero aristas `filed_claim` se excluyen — esto es intencional para que los dropdowns de la UI (Análisis de Fraude, Velocidad de Reclamos, etc.) nunca muestren entidades que devolverían resultados vacíos.
+
+---
+
+### 9. Obtener Detalles del Reclamante
+
+Recupera un único reclamante.
+
+**Endpoint:** `GET /claimants/{claimant_id}`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `claimant_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/claimants/clm-abc
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "claimantId": "clm-abc",
+  "name": "Claimant 12",
+  "fraudScore": 0.42
+}
+```
+
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claimantId` | string | ID del vértice Claimant |
+| `name` | string | Nombre del reclamante |
+| `fraudScore` | number | Puntuación de fraude a nivel reclamante |
+
+**Errores:**
+
+- `404 Not Found` — `claimant_id` no está en el grafo
+
+---
+
+### 10. Obtener Historial de Reclamos del Reclamante
+
+Listar todos los reclamos presentados por un reclamante.
 
 **Endpoint:** `GET /claimants/{claimant_id}/claims`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `claimant_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/claimants/clm-abc/claims
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "claimantId": "claimant-12345",
-  "totalClaims": 5,
+  "claimantId": "clm-abc",
   "claims": [
-    {
-      "claimId": "claim-001",
-      "amount": 5000.00,
-      "fraudScore": 0.3,
-      "status": "approved",
-      "date": "2024-01-15"
-    }
+    {"claimId": "c1", "amount": 8500.00, "status": "approved", "claimDate": 1713283200, "fraudScore": 0.12},
+    {"claimId": "c2", "amount": 12500.00, "status": "approved", "claimDate": 1715880000, "fraudScore": 0.88}
   ]
 }
 ```
 
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claimantId` | string | ID del vértice Claimant |
+| `claims[]` | array | Lista de los reclamos del reclamante (misma forma que endpoint 6 pero abreviada) |
+
+**Errores:**
+
+- `404 Not Found` — `claimant_id` no está en el grafo
+
 ---
 
-### 4. Obtener Puntuación de Riesgo del Reclamante
+### 11. Obtener Puntuación de Riesgo del Reclamante
 
-Obtener evaluación de riesgo impulsada por ML para un reclamante.
+Calcula una puntuación de riesgo de fraude para un reclamante basada en historial de reclamos + señales derivadas por ML.
 
 **Endpoint:** `GET /claimants/{claimant_id}/risk-score`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `claimant_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/claimants/clm-abc/risk-score
+```
+
+**Ejemplo de Respuesta (reclamante con historial):**
+
 ```json
 {
-  "claimantId": "claimant-12345",
-  "riskScore": 0.78,
-  "riskLevel": "high",
-  "factors": {
-    "claimFrequency": 0.8,
-    "averageFraudScore": 0.65,
-    "suspiciousConnections": 3,
-    "claimVelocity": 0.9
-  },
-  "recommendation": "Revisión mejorada requerida"
+  "claimantId": "clm-abc",
+  "riskScore": 0.67,
+  "totalClaims": 4,
+  "rejectedClaims": 1,
+  "rejectionRate": 0.25,
+  "totalClaimAmount": 42350.00
 }
 ```
 
-**Requiere:** Entrenamiento de Neptune ML completado
+**Ejemplo de Respuesta (sin historial):**
+
+```json
+{
+  "claimantId": "clm-abc",
+  "riskScore": 0.0,
+  "totalClaims": 0,
+  "rejectedClaims": 0,
+  "rejectionRate": 0.0,
+  "totalClaimAmount": 0.0,
+  "message": "No claims history"
+}
+```
+
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claimantId` | string | ID del vértice Claimant |
+| `riskScore` | number (0–1) | Puntuación de fraude del reclamante (inferencia inductiva ML, fallback heurístico) |
+| `totalClaims` | integer | Número de reclamos presentados |
+| `rejectedClaims` | integer | Reclamos con `status = 'rejected'` |
+| `rejectionRate` | number (0–1) | `rejectedClaims / totalClaims` |
+| `totalClaimAmount` | number | Suma de todos los montos de reclamos |
+| `message` | string | Presente solo cuando `totalClaims = 0` |
+
+**Errores:**
+
+- `404 Not Found` — `claimant_id` no está en el grafo
 
 ---
 
-### 5. Analizar Velocidad de Reclamaciones
+### 12. Analizar Velocidad de Reclamos
 
-Analizar con qué frecuencia un reclamante presenta reclamaciones.
+Detectar presentación de reclamos anormalmente frecuente usando análisis de series temporales sobre fechas de reclamos.
 
 **Endpoint:** `GET /claimants/{claimant_id}/claim-velocity`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `claimant_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/claimants/clm-abc/claim-velocity
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "claimantId": "claimant-12345",
-  "totalClaims": 8,
-  "claimsPerYear": 4.5,
-  "averageIntervalDays": 81.2,
-  "shortestIntervalDays": 15,
-  "mlVelocityScore": 0.82,
-  "velocityRisk": "high",
-  "redFlags": {
-    "rapidFiling": true,
-    "highFrequency": false,
-    "suspiciousPattern": true
-  }
+  "claimantId": "clm-abc",
+  "totalClaims": 4,
+  "claimsPerYear": 4.8,
+  "averageIntervalDays": 76.2,
+  "shortestIntervalDays": 3.1,
+  "velocityRisk": 0.48,
+  "riskLevel": "medium"
 }
 ```
 
-**Algoritmo:** Detección de patrones de series temporales
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `claimantId` | string | ID del vértice Claimant |
+| `totalClaims` | integer | Número de reclamos presentados |
+| `claimsPerYear` | number | Tasa de reclamos anualizada |
+| `averageIntervalDays` | number | Brecha media entre reclamos consecutivos |
+| `shortestIntervalDays` | number | Brecha mínima — brechas muy cortas indican presentación en ráfaga |
+| `velocityRisk` | number (0–1) | Puntuación de inferencia inductiva ML (fallback: `min(claimsPerYear/10, 1.0)`) |
+| `riskLevel` | string | `low`, `medium`, `high` |
+
+**Respuesta especial para reclamantes con < 2 reclamos:**
+
+```json
+{
+  "claimantId": "clm-abc",
+  "totalClaims": 1,
+  "velocityRisk": "low",
+  "message": "Insufficient claim history"
+}
+```
+
+**Errores:**
+
+- `404 Not Found` — `claimant_id` no está en el grafo
 
 ---
 
-### 6. Análisis Integral de Fraude
+### 13. Análisis Integral de Fraude
 
-Análisis profundo que muestra todos los indicadores de fraude para un reclamante.
+Devuelve un grafo completo de red de fraude para un reclamante: reclamos, accidentes, vehículos, talleres, testigos, proveedores médicos, abogados, empresas de grúa y pasajeros. Usado por la UI de Análisis de Fraude para dirigir los flujos de trabajo del investigador.
 
 **Endpoint:** `GET /claimants/{claimant_id}/fraud-analysis`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `claimant_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/claimants/clm-abc/fraud-analysis
+```
+
+**Respuesta:** Envoltura de grafo estándar (vea [Formato de Respuesta de Grafo](#formato-de-respuesta-de-grafo)). Típicamente devuelve la vecindad completa de 2 saltos del reclamante, incluyendo entidades de anillo de fraude conectadas con puntuaciones de fraude elevadas renderizadas como nodos con contorno rojo.
+
+**Errores:**
+
+- `404 Not Found` — `claimant_id` no está en el grafo
+
+---
+
+## Anillos de Colisión
+
+### 14. Accidentes Simulados
+
+Detecta pares de reclamantes cuyos accidentes simulados comparten un Vehicle, Witness o RepairShop. Cada Accident devuelto tiene `maneuverType != 'normal'` o `policeVerified = false`, y cada anillo se devuelve con la entidad pivote compartida en el medio.
+
+**Endpoint:** `GET /collision-rings/staged-accidents`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/collision-rings/staged-accidents
+```
+
+**Respuesta:** Envoltura de grafo. Los nodos Accident llevan propiedades adicionales:
+
+| Propiedad | Tipo | Descripción |
+|-----------|------|-------------|
+| `maneuverType` | string | `swoop-squat`, `sudden-stop` o `normal` |
+| `policeVerified` | boolean | Si el accidente tiene un reporte policial verificado |
+| `staged` | boolean | Siempre `true` para accidentes devueltos por este endpoint |
+
+---
+
+### 15. Swoop & Squat
+
+Detecta vehículos involucrados en 2 o más accidentes traseros simulados (`maneuverType` en `swoop-squat` o `sudden-stop`). Expone vehículos "utilería" reutilizados en choques deliberados.
+
+**Endpoint:** `GET /collision-rings/swoop-and-squat`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/collision-rings/swoop-and-squat
+```
+
+**Respuesta:** Envoltura de grafo centrada en nodos Vehicle de múltiples accidentes, sus Accidents, Claims y Claimants.
+
+---
+
+### 16. Pasajeros Infiltrados
+
+Expone accidentes con pasajeros falsos "jump-in" presentando reclamos por lesiones. Cada Passenger se enriquece con métricas agregadas para revelar jump-ins seriales.
+
+**Endpoint:** `GET /collision-rings/stuffed-passengers`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/collision-rings/stuffed-passengers
+```
+
+**Respuesta:** Envoltura de grafo. Los nodos Passenger llevan:
+
+| Propiedad | Tipo | Descripción |
+|-----------|------|-------------|
+| `appearances` | integer | Número de accidentes distintos a los que el pasajero está vinculado vía `passenger_in` |
+| `injuryClaims` | integer | Número de aristas `claimed_injury` desde este pasajero |
+| `totalClaimed` | number | Suma de todos los montos de reclamos por lesiones |
+
+Los pasajeros con `appearances ≥ 2` se renderizan como nodos más grandes — la firma de "jump-in serial". Los nodos de proveedor médico se adjuntan mediante `treated_by` para que el rastro del dinero de las lesiones falsas sea visible.
+
+---
+
+### 17. Colisiones de Papel
+
+Detecta accidentes no verificados con evidencia escasa — `policeVerified = false` Y ≤1 testigo Y ≤1 vehículo.
+
+**Endpoint:** `GET /collision-rings/paper-collisions`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/collision-rings/paper-collisions
+```
+
+**Respuesta:** Envoltura de grafo. Se incluyen explícitamente cadenas escasas de testigos/vehículos para que la "evidencia escasa" sea visualmente aparente.
+
+---
+
+### 18. Abogados Corruptos
+
+Detecta abogados con `fraudScore ≥ 0.7` que representan a dos o más reclamantes, junto con los reclamantes que representan y los reclamos de esos reclamantes.
+
+**Endpoint:** `GET /collision-rings/corrupt-attorneys`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/collision-rings/corrupt-attorneys
+```
+
+**Respuesta:** Envoltura de grafo centrada en nodos Attorney corruptos con aristas Claimant → Claim radiando hacia afuera.
+
+---
+
+### 19. Empresas de Grúa Corruptas
+
+Detecta empresas de grúa con `fraudScore ≥ 0.7` que remolcan vehículos en 2+ accidentes. Incluye la cadena completa: Tow → Vehicle → Accident → Claim → RepairShop para que el patrón de direccionamiento sea visible.
+
+**Endpoint:** `GET /collision-rings/corrupt-tow-companies`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/collision-rings/corrupt-tow-companies
+```
+
+**Respuesta:** Envoltura de grafo incluyendo nodos TowCompany, Vehicle, Accident, Claim, RepairShop y Claimant.
+
+---
+
+## Fraude de Red
+
+### 20. Testigos Profesionales
+
+Detecta testigos que aparecen en 3+ accidentes distintos — el patrón del "testigo profesional".
+
+**Endpoint:** `GET /network-fraud/professional-witnesses`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/professional-witnesses
+```
+
+**Respuesta:** Envoltura de grafo. Ruta por testigo: `Witness ← witnessed_by ← Accident ← for_accident ← Claim ← filed_claim ← Claimant`.
+
+---
+
+### 21. Anillos Organizados
+
+Detecta comunidades densamente conectadas de reclamantes. La membresía del anillo se descubre mediante Vehicle compartido (`owns` ↔ `owns`) o RepairShop compartido (`filed_claim` → `repaired_at`). El sub-grafo devuelto expone todas las entidades compartidas — proveedores médicos, abogados, testigos, empresas de grúa — como evidencia corroborativa.
+
+**Endpoint:** `GET /network-fraud/organized-rings`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/organized-rings
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "claimantId": "claimant-12345",
-  "averageFraudScore": 0.72,
-  "totalClaims": 6,
-  "repairShops": [
+  "algorithm": "Community Detection (1-hop neighborhood analysis)",
+  "totalCommunities": 33,
+  "rings": [
     {
-      "shopId": "shop-001",
-      "name": "Reparación Rápida",
-      "totalClaims": 45,
-      "fraudRate": 0.68
-    }
-  ],
-  "witnesses": [
-    {
-      "witnessId": "witness-001",
-      "name": "María García",
-      "totalAccidentsWitnessed": 12,
-      "isProfessional": true
+      "seedClaimant": "clm-abc",
+      "communitySize": 6,
+      "averageFraudScore": 0.81,
+      "riskLevel": "high",
+      "members": ["clm-abc", "clm-def", "..."],
+      "graph": {"nodes": [...], "edges": [...]}
     }
   ]
 }
 ```
 
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `algorithm` | string | Descripción del algoritmo de detección de comunidades |
+| `totalCommunities` | integer | Total de anillos descubiertos |
+| `rings[]` | array | Hasta 9 anillos principales por tamaño/puntuación |
+| `rings[].communitySize` | integer | Número de reclamantes en el anillo |
+| `rings[].averageFraudScore` | number | Media de fraudScore entre los miembros del anillo |
+| `rings[].riskLevel` | string | `low`, `medium`, `high` |
+| `rings[].graph` | object | Envoltura de grafo por anillo |
+
 ---
 
-## Patrones de Fraude
+### 22. Centros de Fraude
 
-### 7. Detectar Anillos de Colisión
+Clasifica los principales talleres, proveedores médicos y abogados por amplitud de reclamantes conectados, y calcula una "puntuación de colusión" — la fracción de esos reclamantes que también comparten al menos otra entidad con un par en el hub.
 
-Identificar 6 tipos de patrones de fraude de anillos de colisión.
+**Endpoint:** `GET /network-fraud/fraud-hubs`
 
-**Endpoint:** `GET /fraud-patterns/collision-rings`
+**Autenticación:** Bearer JWT
 
-**Respuesta:**
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/fraud-hubs
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "totalDetected": 50,
-  "highSuspicion": 46,
-  "mediumSuspicion": 4,
-  "patterns": {
-    "stagedAccidents": 18,
-    "swoopAndSquat": 2,
-    "stuffedPassengers": 5,
-    "paperCollisions": 27,
-    "corruptAttorneys": 3,
-    "corruptTowCompanies": 2
+  "repairShop": {
+    "hubs": [
+      {
+        "name": "Repair Shop 0",
+        "uniqueClaimants": 18,
+        "collusionScore": 0.72,
+        "graph": {"nodes": [...], "edges": [...]}
+      }
+    ]
+  },
+  "medicalProvider": {"hubs": [...]},
+  "attorney": {"hubs": [...]}
+}
+```
+
+**Esquema de Respuesta:**
+
+Claves de nivel superior: `repairShop`, `medicalProvider`, `attorney`. Cada una tiene un array `hubs` (hasta 5 por categoría) con:
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `name` | string | Nombre de la entidad hub |
+| `uniqueClaimants` | integer | Reclamantes distintos conectados a este hub |
+| `collusionScore` | number (0–1) | Fracción de reclamantes que comparten otra entidad con un par del anillo |
+| `graph` | object | Sub-grafo anclado en el hub |
+
+---
+
+### 23. Indicadores de Colusión
+
+Expone talleres con 5+ reclamantes convergiendo mediante `Claim → repaired_at`. Revela patrones tipo triángulos de colusión.
+
+**Endpoint:** `GET /network-fraud/collusion-indicators`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/collusion-indicators
+```
+
+**Respuesta:** Envoltura de grafo con hubs RepairShop, nodos Claim intermedios y los Claimants detrás de cada reclamo.
+
+---
+
+### 24. Anillos Aislados
+
+Detecta componentes de fraude independientes — sub-grafos pequeños y autocontenidos sin puentes con la red de fraude más amplia. Opera en dos modos:
+
+**Modo 1 — Lista resumen (sin parámetros de consulta):** Devuelve una lista de todos los componentes aislados.
+
+**Endpoint:** `GET /network-fraud/isolated-rings`
+
+**Modo 2 — Grafo por entidad (parámetros de consulta):** Devuelve el anillo aislado específico para una entidad.
+
+**Endpoint:** `GET /network-fraud/isolated-rings?id={entity_id}&type={entity_type}`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Consulta (Modo 2):**
+
+| Nombre | Tipo | Descripción |
+|--------|------|-------------|
+| `id` | string | ID de la entidad |
+| `type` | string | Uno de: `claimant`, `claim`, `repair-shop`, `vehicle`, `medical-provider`, `attorney`, `witness`, `passenger`, `tow-company` |
+
+**Ejemplo de Solicitud (Modo 1):**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/isolated-rings
+```
+
+**Ejemplo de Respuesta (Modo 1):**
+
+```json
+{
+  "algorithm": "Connected Components",
+  "totalComponents": 22,
+  "largestComponent": {"componentId": 1, "size": 48, ...},
+  "suspiciousComponents": [
+    {
+      "componentId": 3,
+      "size": 7,
+      "members": ["clm-abc", "..."],
+      "averageFraudScore": 0.79,
+      "isolationLevel": "isolated",
+      "riskLevel": "high"
+    }
+  ],
+  "insight": "Isolated components may represent independent fraud rings"
+}
+```
+
+**Ejemplo de Solicitud (Modo 2):**
+
+```bash
+curl -b .auth-cookie \
+  "https://YOUR-API/prod/network-fraud/isolated-rings?id=clm-abc&type=claimant"
+```
+
+**Respuesta (Modo 2):** Envoltura de grafo para el anillo específico.
+
+---
+
+### 25. Patrones Entre Reclamos
+
+Para un reclamante dado, calcula métricas de diversidad y un grafo de 2 saltos mostrando entidades aguas abajo (RepairShop, Witness, MedicalProvider) que reaparecen entre múltiples reclamos — la firma de "fraude habitual".
+
+**Endpoint:** `GET /network-fraud/cross-claim-patterns/{claimant_id}`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `claimant_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/cross-claim-patterns/clm-abc
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "metrics": {
+    "totalClaims": 4,
+    "uniqueRepairShops": 1,
+    "uniqueWitnesses": 1,
+    "uniqueProviders": 2,
+    "shopDiversity": 0.25,
+    "witnessDiversity": 0.25,
+    "redFlags": {
+      "sameShopAlways": true,
+      "sameWitnessAlways": true,
+      "lowDiversity": true
+    }
+  },
+  "nodes": [...],
+  "edges": [...]
+}
+```
+
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `metrics.totalClaims` | integer | Número de reclamos presentados |
+| `metrics.uniqueRepairShops` | integer | Talleres distintos usados entre reclamos |
+| `metrics.uniqueWitnesses` | integer | Testigos distintos entre reclamos |
+| `metrics.uniqueProviders` | integer | Proveedores médicos distintos |
+| `metrics.shopDiversity` | number | `uniqueRepairShops / totalClaims` |
+| `metrics.witnessDiversity` | number | `uniqueWitnesses / totalClaims` |
+| `metrics.redFlags` | object | Banderas booleanas para sameShopAlways, sameWitnessAlways, lowDiversity |
+| `nodes`, `edges` | array | Envoltura de grafo (vea [Formato de Respuesta de Grafo](#formato-de-respuesta-de-grafo)) |
+
+**Errores:**
+
+- `404 Not Found` — `claimant_id` no está en el grafo
+
+---
+
+### 26. Vecindad del Proveedor Médico
+
+Devuelve el grafo de vecindad de 1 salto de un proveedor médico.
+
+**Endpoint:** `GET /network-fraud/medical-providers/{provider_id}`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `provider_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/medical-providers/prov-abc
+```
+
+**Respuesta:** Envoltura de grafo — proveedor en el centro con Claimants, Passengers y Claims conectados vía `treated_by`.
+
+**Errores:**
+
+- `404 Not Found` — `provider_id` no está en el grafo
+
+---
+
+### 27. Análisis de Fraude del Proveedor Médico
+
+Calcula métricas de fraude para un proveedor médico usando Neptune ML + estadísticas agregadas de reclamos.
+
+**Endpoint:** `GET /network-fraud/medical-providers/{provider_id}/fraud-analysis`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `provider_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/network-fraud/medical-providers/prov-abc/fraud-analysis
+```
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "providerId": "prov-abc",
+  "name": "Dr. Provider 0",
+  "totalClaims": 13,
+  "uniqueClaimants": 9,
+  "highFraudClaims": 7,
+  "averageFraudScore": 0.61,
+  "mlRiskScore": 0.78,
+  "networkConnections": 24,
+  "riskLevel": "high",
+  "suspicionIndicators": {
+    "highFraudRate": true,
+    "limitedClaimants": false,
+    "networkHub": true
   }
 }
 ```
 
-**Tipos de Fraude Detectados:**
-1. **Accidentes Simulados** - Vehículos/talleres/testigos compartidos
-2. **Swoop & Squat** - Maniobras de colisión trasera
-3. **Pasajeros Falsos** - Personas que fingen lesiones
-4. **Colisiones Ficticias** - Informes policiales no verificados
-5. **Abogados Corruptos** - Dirigiendo clientes a anillos de fraude
-6. **Empresas de Grúas Corruptas** - Dirigiendo víctimas a talleres fraudulentos
+**Esquema de Respuesta:**
 
-**Algoritmo:** Recorrido de grafos multi-salto con coincidencia de patrones
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `providerId` | string | ID del vértice del proveedor |
+| `name` | string | Nombre del proveedor |
+| `totalClaims` | integer | Reclamos vía `treated_by` |
+| `uniqueClaimants` | integer | Reclamantes distintos alcanzados |
+| `highFraudClaims` | integer | Reclamos con fraudScore > 0.7 |
+| `averageFraudScore` | number | Media fraudScore entre reclamos |
+| `mlRiskScore` | number | Inferencia inductiva de Neptune ML sobre el nodo del proveedor |
+| `networkConnections` | integer | Centralidad de grado (alcance vía reclamos) |
+| `riskLevel` | string | `low`, `medium`, `high` |
+| `suspicionIndicators` | object | Booleanos para banderas rojas basadas en reglas |
+
+**Errores:**
+
+- `404 Not Found` — `provider_id` no está en el grafo
 
 ---
 
-### 8. Encontrar Testigos Profesionales
+## Análisis Avanzado
 
-Identificar testigos que aparecen en múltiples reclamaciones no relacionadas.
+### 28. Reclamantes Influyentes
 
-**Endpoint:** `GET /fraud-patterns/professional-witnesses`
+Clasifica reclamantes por PageRank aproximado (calculado mediante puntuación de conexiones de 1 salto). Expone reclamantes que están en el centro de muchas entidades adyacentes al fraude.
 
-**Respuesta:**
-```json
-{
-  "totalSuspiciousWitnesses": 8,
-  "witnesses": [
-    {
-      "witnessId": "witness-001",
-      "name": "Juan López",
-      "claimCount": 15,
-      "isProfessional": true,
-      "suspicionLevel": "high"
-    }
-  ]
-}
+**Endpoint:** `GET /advanced-analysis/influential-claimants`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/advanced-analysis/influential-claimants
 ```
 
-**Algoritmo:** Análisis de frecuencia de testigos
+**Ejemplo de Respuesta:**
 
----
-
-### 9. Detectar Indicadores de Colusión
-
-Encontrar colusión tripartita entre reclamantes, vehículos y talleres.
-
-**Endpoint:** `GET /fraud-patterns/collusion-indicators`
-
-**Respuesta:**
 ```json
 {
-  "algorithm": "Conteo de Triángulos",
-  "totalTrianglesDetected": 45,
-  "claimantsInTriangles": 12,
-  "topCollusionRisks": [
+  "algorithm": "PageRank (approximated via connection scoring)",
+  "topInfluentialClaimants": [
     {
-      "claimantId": "claimant-123",
-      "triangleCount": 8,
-      "collusionRisk": "high"
-    }
-  ]
-}
-```
-
-**Algoritmo:** Conteo de triángulos en grafo
-
----
-
-### 10. Análisis de Patrones Entre Reclamaciones
-
-Identificar reclamantes que siempre usan las mismas entidades.
-
-**Endpoint:** `GET /fraud-patterns/cross-claim-patterns`
-
-**Respuesta:**
-```json
-{
-  "algorithm": "Análisis de Patrones Entre Reclamaciones + Neptune ML",
-  "totalSuspiciousPatterns": 15,
-  "highRiskPatterns": [
-    {
-      "claimantId": "claimant-123",
-      "totalClaims": 6,
-      "uniqueRepairShops": 1,
-      "shopDiversity": 0.167,
-      "mlPatternScore": 0.89,
-      "suspicionLevel": "high"
-    }
-  ]
-}
-```
-
-**Algoritmo:** Puntuación de diversidad + Neptune ML
-
----
-
-## Redes de Fraude
-
-### 11. Encontrar Reclamantes Influyentes
-
-Identificar centros de red que pueden estar organizando anillos de fraude.
-
-**Endpoint:** `GET /fraud-networks/influential-claimants`
-
-**Respuesta:**
-```json
-{
-  "algorithm": "Análisis de Conexión estilo PageRank",
-  "topInfluencers": [
-    {
-      "claimantId": "claimant-123",
-      "name": "Juan Pérez",
-      "claimCount": 12,
-      "connectionScore": 45,
-      "influenceLevel": "critical"
-    }
-  ]
-}
-```
-
-**Algoritmo:** Análisis de centralidad estilo PageRank
-
----
-
-### 12. Detectar Anillos de Fraude Organizados
-
-Encontrar grupos densamente conectados trabajando juntos.
-
-**Endpoint:** `GET /fraud-networks/organized-rings`
-
-**Respuesta:**
-```json
-{
-  "algorithm": "Detección de Comunidades (análisis de vecindario de 2 saltos)",
-  "totalCommunities": 8,
-  "suspiciousCommunities": [
-    {
-      "seedClaimant": "claimant-123",
-      "communitySize": 7,
-      "averageFraudScore": 0.82,
+      "claimantId": "clm-abc",
+      "name": "Claimant 42",
+      "connectionScore": 38,
+      "fraudScore": 0.82,
       "riskLevel": "high"
     }
   ]
 }
 ```
 
-**Algoritmo:** Detección de comunidades vía recorrido de 2 saltos
+---
+
+### 29. Conexiones entre Estafadores
+
+Encuentra el camino más corto entre dos entidades en la red de fraude. Útil para investigadores razonando sobre cómo dos reclamantes o entidades ostensiblemente no relacionados están realmente conectados.
+
+**Endpoint:** `GET /advanced-analysis/connections?source={id}&target={id}`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Consulta:**
+
+| Nombre | Tipo | Descripción |
+|--------|------|-------------|
+| `source` | string | ID de entidad origen |
+| `target` | string | ID de entidad destino |
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  "https://YOUR-API/prod/advanced-analysis/connections?source=clm-abc&target=clm-def"
+```
+
+**Respuesta:** Envoltura de grafo conteniendo el camino más corto — típicamente 2–6 saltos — con aristas del camino etiquetadas por su tipo.
+
+**Sin parámetros de consulta:** devuelve un grafo muestreado de reclamantes con puntuación de fraude alta con sus interconexiones.
+
+**Errores:**
+
+- `404 Not Found` — `source` o `target` no está en el grafo
 
 ---
 
-### 13. Identificar Talleres Centro de Fraude
+## Consulta de Entidades
 
-Encontrar talleres que conectan múltiples redes de fraude.
+### 30. Vecindad del Taller
 
-**Endpoint:** `GET /repair-shops/fraud-hubs`
+Devuelve la vecindad de 1 salto de un taller — los Claims reparados allí, más los Claimants detrás de esos reclamos.
 
-**Respuesta:**
+**Endpoint:** `GET /entity-lookup/repair-shops/{shop_id}`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `shop_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/entity-lookup/repair-shops/shop-abc
+```
+
+**Respuesta:** Envoltura de grafo.
+
+**Errores:**
+
+- `404 Not Found` — `shop_id` no está en el grafo
+
+---
+
+### 31. Estadísticas del Taller
+
+Calcula estadísticas agregadas del taller: total de reclamos, tasa de fraude, ingresos totales.
+
+**Endpoint:** `GET /entity-lookup/repair-shops/{shop_id}/statistics`
+
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `shop_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/entity-lookup/repair-shops/shop-abc/statistics
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "algorithm": "Centralidad de Intermediación",
-  "topCentralRepairShops": [
-    {
-      "repairShopId": "shop-001",
-      "name": "Reparación Rápida",
-      "uniqueClaimants": 45,
-      "totalClaims": 120,
-      "centralityScore": 78,
-      "bridgingRole": "critical"
-    }
-  ]
+  "shopId": "shop-abc",
+  "name": "Repair Shop 0",
+  "totalClaims": 18,
+  "averageClaimAmount": 9823.40,
+  "totalRevenue": 176821.20,
+  "highFraudClaims": 12,
+  "fraudRate": 0.67,
+  "averageFraudScore": 0.74,
+  "riskLevel": "high"
 }
 ```
 
-**Algoritmo:** Centralidad de intermediación
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `shopId` | string | ID del vértice del taller |
+| `name` | string | Nombre del taller |
+| `totalClaims` | integer | Reclamos vía `repaired_at` |
+| `averageClaimAmount` | number | Monto medio del reclamo |
+| `totalRevenue` | number | Suma de montos de reclamos |
+| `highFraudClaims` | integer | Reclamos con fraudScore > 0.7 |
+| `fraudRate` | number (0–1) | `highFraudClaims / totalClaims` |
+| `averageFraudScore` | number | Media fraudScore |
+| `riskLevel` | string | `low`, `medium`, `high` |
+
+**Errores:**
+
+- `404 Not Found` — `shop_id` no está en el grafo
 
 ---
 
-### 14. Mapear Conexiones de Estafadores
+### 32. Vecindad del Vehículo
 
-Encontrar rutas más cortas entre sospechosos de fraude.
+Devuelve la vecindad de 1 salto de un vehículo — accidentes en los que estuvo involucrado, su propietario, y los reclamos de esos accidentes.
 
-**Endpoint:** `GET /fraud-networks/connections`
+**Endpoint:** `GET /entity-lookup/vehicles/{vehicle_id}`
 
-**Respuesta:**
-```json
-{
-  "algorithm": "Ruta Más Corta",
-  "fraudNetworkConnections": [
-    {
-      "source": "claimant-123",
-      "target": "claimant-456",
-      "pathLength": 3,
-      "connectionType": "direct"
-    }
-  ]
-}
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `vehicle_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/entity-lookup/vehicles/veh-abc
 ```
 
-**Algoritmo:** Búsqueda de ruta más corta
+**Respuesta:** Envoltura de grafo.
+
+**Errores:**
+
+- `404 Not Found` — `vehicle_id` no está en el grafo
 
 ---
 
-### 15. Encontrar Anillos de Fraude Aislados
+### 33. Historial de Fraude del Vehículo
 
-Identificar operaciones de fraude independientes.
+Analiza el historial de reclamos de un vehículo y calcula una puntuación de riesgo ML.
 
-**Endpoint:** `GET /fraud-networks/isolated-rings`
+**Endpoint:** `GET /entity-lookup/vehicles/{vehicle_id}/fraud-history`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Parámetros de Ruta:** `vehicle_id` (string)
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/entity-lookup/vehicles/veh-abc/fraud-history
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "algorithm": "Componentes Conectados",
-  "totalComponents": 12,
-  "largestComponent": {
-    "componentId": 1,
-    "size": 15,
-    "averageFraudScore": 0.78,
-    "riskLevel": "high"
+  "vehicleId": "veh-abc",
+  "make": "Nissan",
+  "year": 2021,
+  "totalClaims": 3,
+  "highFraudClaims": 2,
+  "averageFraudScore": 0.68,
+  "mlRiskScore": 0.81,
+  "uniqueOwners": 2,
+  "uniqueRepairShops": 1,
+  "riskLevel": "high",
+  "suspicionIndicators": {
+    "repeatClaims": true,
+    "ownerChurn": true,
+    "shopLockIn": true
   }
 }
 ```
 
-**Algoritmo:** Análisis de componentes conectados
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `vehicleId` | string | ID del vértice Vehicle |
+| `make` | string | Marca del vehículo |
+| `year` | integer | Año del modelo |
+| `totalClaims` | integer | Reclamos donde este vehículo estuvo involucrado |
+| `highFraudClaims` | integer | Reclamos con fraudScore > 0.7 |
+| `averageFraudScore` | number | Media fraudScore entre reclamos |
+| `mlRiskScore` | number | Inferencia inductiva de Neptune ML sobre el vehículo |
+| `uniqueOwners` | integer | Reclamantes distintos que poseyeron este vehículo |
+| `uniqueRepairShops` | integer | Talleres distintos donde se reparó este vehículo |
+| `riskLevel` | string | `low`, `medium`, `high` |
+| `suspicionIndicators` | object | Booleanos para banderas rojas basadas en reglas |
+
+**Respuesta especial para vehículos sin reclamos:**
+
+```json
+{"vehicleId": "veh-abc", "make": "Nissan", "year": 2021, "totalClaims": 0, "riskLevel": "unknown"}
+```
+
+**Errores:**
+
+- `404 Not Found` — `vehicle_id` no está en el grafo
 
 ---
 
 ## Analítica
 
-### 16. Obtener Tendencias de Fraude
+### 34. Tendencias de Fraude
 
-Estadísticas de fraude de alto nivel y tendencias.
+Estadísticas agregadas de fraude entre todos los reclamos.
 
 **Endpoint:** `GET /analytics/fraud-trends`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/analytics/fraud-trends
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "totalClaims": 200,
-  "approvedClaims": 120,
-  "rejectedClaims": 80,
-  "highFraudClaims": 85,
-  "fraudRate": 0.425,
-  "averageFraudScore": 0.512,
-  "suspiciousRepairShops": 12
+  "totalClaims": 2020,
+  "approvedClaims": 2020,
+  "rejectedClaims": 0,
+  "pendingClaims": 0,
+  "highFraudClaims": 59,
+  "fraudRate": 0.02,
+  "totalClaimAmount": 7589863.11,
+  "estimatedFraudExposure": 2276958.93
 }
 ```
 
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `totalClaims` | integer | Reclamos totales en el grafo |
+| `approvedClaims` | integer | Reclamos con estado `approved` |
+| `rejectedClaims` | integer | Reclamos con estado `rejected` |
+| `pendingClaims` | integer | Reclamos con estado `pending` |
+| `highFraudClaims` | integer | Reclamos con fraudScore > 0.7 |
+| `fraudRate` | number | `highFraudClaims / totalClaims` |
+| `totalClaimAmount` | number | Suma de todos los montos de reclamos |
+| `estimatedFraudExposure` | number | Suma de montos de reclamos marcados como fraude |
+
 ---
 
-### 17. Detectar Puntos Calientes Geográficos
+### 35. Puntos Calientes Geográficos
 
-Encontrar áreas con alta concentración de fraude.
+Detecta puntos calientes de fraude geográfico agrupando accidentes y entidades por código postal. Devuelve clusters a nivel de código postal con coordenadas, densidad de fraude, entidades vinculadas y un grafo de red de la zona de fraude principal.
 
 **Endpoint:** `GET /analytics/geographic-hotspots`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/analytics/geographic-hotspots
+```
+
+**Ejemplo de Respuesta (abreviado):**
+
 ```json
 {
-  "algorithm": "Agrupamiento Geográfico (aproximación K-means)",
-  "totalHotspots": 8,
-  "criticalHotspots": [
+  "zones": [
     {
-      "repairShopId": "shop-001",
-      "name": "Taller Centro",
-      "claimVolume": 45,
-      "averageFraudScore": 0.82,
-      "hotspotLevel": "critical"
+      "zipCode": "33142",
+      "latitude": 25.823165,
+      "longitude": -80.207243,
+      "totalAccidents": 15,
+      "fraudAccidents": 14,
+      "fraudDensity": 0.933
     }
-  ]
+  ],
+  "hotspotEntities": {
+    "repairShops": [
+      {
+        "id": "uuid",
+        "name": "Repair Shop 3",
+        "latitude": 25.821,
+        "longitude": -80.215,
+        "zipCode": "33142",
+        "fraudScore": 0.89,
+        "type": "repairShop"
+      }
+    ],
+    "medicalProviders": [...],
+    "towCompanies": [...]
+  },
+  "graph": {
+    "nodes": [
+      {"id": "uuid", "type": "accident", "label": "Accident (2026-04-12)", "latitude": 25.82, "longitude": -80.21, "size": 8, "fraudScore": 0.0},
+      {"id": "uuid", "type": "claim", "label": "Claim", "size": 7, "fraudScore": 0.92},
+      {"id": "uuid", "type": "repairShop", "label": "Repair Shop", "size": 12, "fraudScore": 0.94}
+    ],
+    "edges": [
+      {"source": "claim-uuid", "target": "accident-uuid", "type": "for_accident"},
+      {"source": "claim-uuid", "target": "shop-uuid", "type": "repaired_at"}
+    ]
+  },
+  "insight": "Top fraud zone: ZIP 33142 with 93% fraud density"
 }
 ```
 
-**Algoritmo:** Agrupamiento geográfico
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `zones[]` | array | Códigos postales ordenados por densidad de fraude (descendente) |
+| `zones[].zipCode` | string | Código postal |
+| `zones[].latitude` | number | Latitud promedio de accidentes en esta zona |
+| `zones[].longitude` | number | Longitud promedio de accidentes en esta zona |
+| `zones[].totalAccidents` | integer | Total de accidentes en este código postal |
+| `zones[].fraudAccidents` | integer | Accidentes vinculados a fraude en este código postal |
+| `zones[].fraudDensity` | number | Proporción de fraude sobre total de accidentes (0.0–1.0) |
+| `hotspotEntities` | object | Entidades sospechosas ubicadas en zonas de fraude principales |
+| `hotspotEntities.repairShops[]` | array | Talleres en zonas de fraude con puntuaciones de fraude |
+| `hotspotEntities.medicalProviders[]` | array | Proveedores médicos en zonas de fraude |
+| `hotspotEntities.towCompanies[]` | array | Compañías de grúa en zonas de fraude |
+| `graph` | object | Datos de visualización de red para la zona de fraude principal |
+| `graph.nodes[]` | array | Nodos con id, tipo, etiqueta, fraudScore, coordenadas |
+| `graph.edges[]` | array | Aristas con source, target, tipo |
+| `insight` | string | Resumen legible de la zona de fraude principal |
 
 ---
 
-### 18. Detectar Anomalías en Montos de Reclamaciones
+### 36. Anomalías en Montos de Reclamos
 
-Encontrar reclamaciones con montos inusualmente altos o bajos.
+Detecta reclamos con montos anormalmente altos mediante análisis estadístico (z-score) y análisis potenciado por ML.
 
 **Endpoint:** `GET /analytics/claim-amount-anomalies`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/analytics/claim-amount-anomalies
+```
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "algorithm": "Detección de Anomalías Estadísticas + Neptune ML",
+  "algorithm": "Statistical Anomaly Detection + Neptune ML",
   "statistics": {
-    "meanAmount": 5250.50,
-    "standardDeviation": 2100.25,
-    "totalClaims": 200
+    "meanAmount": 3757.37,
+    "standardDeviation": 2142.10,
+    "totalClaims": 2020
   },
-  "anomaliesDetected": 15,
-  "highRiskAnomalies": [
+  "anomaliesDetected": 59,
+  "highRiskAnomalies": [],
+  "allAnomalies": [
     {
-      "claimId": "claim-123",
-      "amount": 15000.00,
-      "zScore": 4.65,
-      "fraudScore": 0.88,
+      "claimId": "abc-123",
+      "amount": 17407.07,
+      "zScore": 6.37,
+      "fraudScore": 0.0,
+      "mlAnomalyScore": 0.0,
       "anomalyType": "unusually_high",
-      "riskLevel": "high"
+      "riskLevel": "medium"
     }
   ]
 }
 ```
 
-**Algoritmo:** Análisis de puntuación Z + Neptune ML
+**Esquema de Respuesta:**
 
-**Requiere:** Entrenamiento de Neptune ML completado
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `algorithm` | string | Descripción del algoritmo |
+| `statistics.meanAmount` | number | Monto medio del reclamo |
+| `statistics.standardDeviation` | number | Desviación estándar de montos de reclamos |
+| `statistics.totalClaims` | integer | Tamaño de la muestra |
+| `anomaliesDetected` | integer | Anomalías totales (abs(z-score) > 2) |
+| `highRiskAnomalies[]` | array | Reclamos con z-score > 3 Y mlAnomalyScore > 0.7 |
+| `allAnomalies[]` | array | Todas las anomalías |
+| `allAnomalies[].zScore` | number | Z-score estadístico |
+| `allAnomalies[].mlAnomalyScore` | number | Puntuación de anomalía de Neptune ML |
+| `allAnomalies[].anomalyType` | string | `unusually_high` o `unusually_low` |
+| `allAnomalies[].riskLevel` | string | `low`, `medium`, `high` |
 
 ---
 
-### 19. Analizar Patrones Temporales
+### 37. Patrones Temporales
 
-Detectar patrones de fraude basados en tiempo.
+Analiza patrones de presentación de reclamos a lo largo del tiempo — agregados semanales y mensuales, ráfagas detectadas.
 
 **Endpoint:** `GET /analytics/temporal-patterns`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Solicitud:**
+
+```bash
+curl -b .auth-cookie \
+  https://YOUR-API/prod/analytics/temporal-patterns
+```
+
+**Ejemplo de Respuesta (abreviado):**
+
 ```json
 {
-  "algorithm": "Análisis de Patrones Temporales",
-  "hourlyPatterns": [
-    {
-      "hour": 14,
-      "claimCount": 25,
-      "averageFraudScore": 0.78,
-      "suspicionLevel": "high"
-    }
+  "monthlyTrends": [
+    {"month": "2024-01", "totalClaims": 168, "fraudClaims": 4, "fraudRate": 0.024},
+    {"month": "2024-02", "totalClaims": 142, "fraudClaims": 3, "fraudRate": 0.021}
   ],
-  "suspiciousHours": [14, 15, 22]
+  "weekdayPatterns": {
+    "Monday": 312, "Tuesday": 289, "...": "..."
+  },
+  "anomalousBursts": [
+    {"startDate": "2024-06-10", "endDate": "2024-06-13", "claimCount": 42, "expected": 14}
+  ]
 }
 ```
 
-**Algoritmo:** Análisis temporal
+**Esquema de Respuesta:**
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `monthlyTrends[]` | array | Datos mensuales de reclamos/tasa de fraude |
+| `weekdayPatterns` | object | Conteos de reclamos por día de semana |
+| `anomalousBursts[]` | array | Ventanas de tiempo detectadas con tasa de reclamos mucho mayor de lo esperado |
 
 ---
 
-## Análisis de Entidades
+## Listas de Entidades
 
-### 20. Obtener Estadísticas del Taller
+Cada uno de estos endpoints devuelve una lista simple para poblar los dropdowns de la UI. La forma de respuesta es idéntica por tipo de entidad.
 
-Estadísticas detalladas de fraude para un taller de reparación.
+### 38. Listar Abogados
 
-**Endpoint:** `GET /repair-shops/{shop_id}/statistics`
+**Endpoint:** `GET /attorneys`
 
-**Respuesta:**
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "repairShopId": "shop-001",
-  "name": "Reparación Rápida",
-  "totalClaims": 120,
-  "highFraudClaims": 85,
-  "fraudRate": 0.708,
-  "averageClaimAmount": 7500.00,
-  "uniqueClaimants": 45
+  "attorneys": [
+    {"id": "atty-1", "name": "Attorney 0"},
+    {"id": "atty-2", "name": "Attorney 1"}
+  ]
 }
 ```
 
 ---
 
-### 21. Analizar Historial de Fraude del Vehículo
+### 39. Listar Testigos
 
-Obtener historial de fraude y evaluación de riesgo para un vehículo.
+**Endpoint:** `GET /witnesses`
 
-**Endpoint:** `GET /vehicles/{vehicle_id}/fraud-history`
+**Autenticación:** Bearer JWT
 
-**Respuesta:**
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "vehicleId": "vehicle-123",
-  "vin": "VIN1234567890",
-  "totalClaims": 8,
-  "highFraudClaims": 6,
-  "fraudRate": 0.75,
-  "mlRiskScore": 0.88,
-  "riskLevel": "high",
-  "recommendation": "Inspección mejorada requerida"
+  "witnesses": [
+    {"id": "wit-1", "name": "Witness 0"}
+  ]
 }
 ```
 
-**Requiere:** Entrenamiento de Neptune ML completado
-
 ---
 
-### 22. Analizar Fraude de Proveedor Médico
+### 40. Listar Pasajeros
 
-Evaluar patrones de fraude para proveedores médicos.
+**Endpoint:** `GET /passengers`
 
-**Endpoint:** `GET /medical-providers/{provider_id}/fraud-analysis`
+**Autenticación:** Bearer JWT
 
-**Respuesta:**
+**Ejemplo de Respuesta:**
+
 ```json
 {
-  "providerId": "provider-001",
-  "name": "Clínica Dr. García",
-  "totalClaims": 65,
-  "highFraudClaims": 48,
-  "fraudRate": 0.738,
-  "mlFraudScore": 0.85,
-  "riskLevel": "high"
+  "passengers": [
+    {"id": "pas-1", "name": "Passenger abc12345"},
+    {"id": "pas-2", "name": "Serial Jump-in 9f25c880"}
+  ]
 }
 ```
 
-**Requiere:** Entrenamiento de Neptune ML completado
-
 ---
 
-## Manejo de Errores
+### 41. Listar Empresas de Grúa
 
-### Códigos de Estado HTTP
+**Endpoint:** `GET /tow-companies`
 
-- `200` - Éxito
-- `400` - Solicitud Incorrecta (parámetros inválidos)
-- `401` - No Autorizado (token faltante o inválido)
-- `404` - No Encontrado (la entidad no existe)
-- `429` - Demasiadas Solicitudes (límite de tasa excedido)
-- `500` - Error Interno del Servidor
+**Autenticación:** Bearer JWT
 
-### Formato de Respuesta de Error
+**Ejemplo de Respuesta:**
 
 ```json
 {
-  "error": "Descripción del mensaje de error",
-  "code": "CÓDIGO_ERROR",
-  "timestamp": 1704067200
+  "towCompanies": [
+    {"id": "tow-1", "name": "Tow Company 0"}
+  ]
+}
+```
+
+---
+
+### 42. Listar Proveedores Médicos
+
+**Endpoint:** `GET /medical-providers`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "medicalProviders": [
+    {"id": "prov-1", "name": "Dr. Provider 0"}
+  ]
+}
+```
+
+---
+
+### 43. Listar Talleres
+
+**Endpoint:** `GET /repair-shops`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "repairShops": [
+    {"id": "shop-1", "name": "Repair Shop 0"}
+  ]
+}
+```
+
+---
+
+### 44. Listar Vehículos
+
+**Endpoint:** `GET /vehicles`
+
+**Autenticación:** Bearer JWT
+
+**Ejemplo de Respuesta:**
+
+```json
+{
+  "vehicles": [
+    {"id": "veh-1", "vin": "VIN0000000000", "make": "Toyota", "year": 2020}
+  ]
 }
 ```
 
@@ -670,26 +1819,29 @@ Evaluar patrones de fraude para proveedores médicos.
 
 ## Límites de Tasa
 
-**Protección WAF:**
-- 2,000 solicitudes por 5 minutos por IP
-- Bloqueo automático para patrones sospechosos
-- Protección OWASP Top 10 habilitada
+Todos los endpoints están protegidos por AWS WAF con:
 
----
+- **Límite de tasa global:** 2,000 solicitudes por ventana de 5 minutos, por IP origen
+- **Detección de bots:** Solicitudes sin encabezado `User-Agent` son bloqueadas
+- **Reglas administradas OWASP Top 10:** Inyección SQL, XSS y otros ataques comunes
+- **Límites de tamaño de solicitud:** Cuerpos POST > 8 KB son rechazados
+
+Exceder el límite de tasa devuelve un `403 Forbidden` con un mensaje de respuesta de WAF.
 
 ## Mejores Prácticas
 
-1. **Cachear tokens** - Reutilizar tokens durante su período de validez de 1 hora
-2. **Manejar límites de tasa** - Implementar retroceso exponencial
-3. **Agrupar solicitudes** - Agrupar consultas relacionadas cuando sea posible
-4. **Monitorear estado de ML** - Verificar si el entrenamiento de ML está completo antes de usar endpoints de ML
-5. **Manejo de errores** - Siempre verificar códigos de estado de respuesta
-
----
+- **Reutilice JWTs entre solicitudes.** La emisión de tokens es costosa; almacene en caché el token en su cliente durante su vigencia de 1 hora.
+- **Refresque proactivamente.** Llame a `POST /auth/refresh` al ~90% de la vigencia del token en lugar de esperar un `401`.
+- **Respete la paginación.** Los endpoints de grafo limitan el número de anillos/comunidades devueltas por rendimiento. Si necesita el dataset completo para analítica, consulte el clúster Neptune subyacente directamente o solicite una ejecución de exportación Step Functions.
+- **Trate los valores fraudScore como probabilidades.** No son clasificadores calibrados; úselos como señal de ranking.
+- **No asuma que `mlRiskScore` > 0.** Si el entrenamiento de Neptune ML aún está en progreso (primeras 1–2 horas después del despliegue), los endpoints ML se degradan elegantemente a heurísticas y devuelven 0 o valores de fallback.
+- **Los clientes navegador deben enviar `credentials: 'include'`** para que la ruta de autenticación por cookie `httpOnly` funcione. La configuración CORS de la API lo requiere.
 
 ## Soporte
 
-Para problemas o preguntas:
-- Consulte [SAMPLE_QUERIES.md](SAMPLE_QUERIES.md) para ejemplos de consultas
-- Revise los logs de CloudWatch: `/aws/apigateway/auto-insurance-fraud-detection-API`
-- Verifique los logs de WAF: `/aws/wafv2/auto-insurance-fraud-detection-WAF`
+- **Solución de problemas:** revise los logs de CloudWatch bajo `/aws/lambda/auto-insurance-fraud-detect-FraudDetectionFunction-*`
+- **Logs de WAF:** `/aws/wafv2/auto-insurance-fraud-detection-WAF`
+- **Logs de API Gateway:** `/aws/apigateway/auto-insurance-fraud-detection-API`
+- **Pipeline Neptune ML:** consola Step Functions → `auto-insurance-fraud-detection-MLPipelineStack-*-MLPipeline`
+- **Consultas de muestra:** vea [SAMPLE_QUERIES.md](SAMPLE_QUERIES.md)
+- **Código del frontend:** vea [frontend/README.md](frontend/README.md)

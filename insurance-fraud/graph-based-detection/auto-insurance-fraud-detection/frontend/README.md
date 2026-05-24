@@ -185,25 +185,34 @@ frontend/
 
 ## API Endpoints
 
-All 22 endpoints are implemented:
+All 44 endpoints are implemented:
 
-**Authentication (2)**
-- Login, Logout
+**Authentication (3)**
+- Login, Logout, Refresh
 
-**Claims Management (6)**
-- Submit Claim, Claim Details, Claimant Claims, Risk Score, Claim Velocity, Fraud Analysis
+**Claims (4)**
+- Submit Claim, List Claims, Claim Details, Claim Graph
 
-**Fraud Patterns (4)**
-- Collision Rings, Professional Witnesses, Collusion Indicators, Cross-Claim Patterns
+**Claimants (6)**
+- List Claimants, Claimant Details, Claimant Claims, Risk Score, Claim Velocity, Fraud Analysis
 
-**Fraud Networks (4)**
-- Influential Claimants, Organized Rings, Connections, Isolated Rings
+**Collision Rings (6)**
+- Staged Accidents, Swoop & Squat, Stuffed Passengers, Paper Collisions, Corrupt Attorneys, Corrupt Tow Companies
+
+**Network Fraud (8)**
+- Professional Witnesses, Organized Rings, Fraud Hubs, Collusion Indicators, Isolated Rings, Cross-Claim Patterns, Medical Provider Graph, Medical Provider Fraud Analysis
+
+**Advanced Analysis (2)**
+- Influential Claimants, Connections
+
+**Entity Lookup (4)**
+- Repair Shop Graph, Repair Shop Statistics, Vehicle Graph, Vehicle Fraud History
 
 **Analytics (4)**
 - Fraud Trends, Geographic Hotspots, Claim Anomalies, Temporal Patterns
 
-**Entity Analysis (2)**
-- Repair Shop Stats, Fraud Hubs, Vehicle Fraud History
+**Entity Lists (7)**
+- Attorneys, Witnesses, Passengers, Tow Companies, Medical Providers, Repair Shops, Vehicles
 
 ## Troubleshooting
 

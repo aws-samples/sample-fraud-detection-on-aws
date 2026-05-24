@@ -37,20 +37,29 @@ LAMBDA_CODE_VERSION=$(date +%Y%m%d%H%M%S)
 echo "🛡️  Step 0/6: Deploying CloudFront WAF in us-east-1..."
 echo "  (CloudFront WAF must be in us-east-1 regardless of deployment region)"
 
-aws cloudformation deploy \
-  --stack-name $CLOUDFRONT_WAF_STACK \
-  --template-file infrastructure/stacks/cloudfront-waf.yaml \
-  --profile $PROFILE \
-  --region us-east-1 \
-  --no-fail-on-empty-changeset
+# Check if WAF WebACL already exists (orphaned from a previous deploy)
+EXISTING_WAF_ARN=$(aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --profile $PROFILE \
+  --query "WebACLs[?contains(Name, '${CLOUDFRONT_WAF_STACK}')].ARN" --output text 2>/dev/null)
 
-# Get WAF WebACL ARN
-CLOUDFRONT_WAF_ARN=$(aws cloudformation describe-stacks \
-  --stack-name $CLOUDFRONT_WAF_STACK \
-  --profile $PROFILE \
-  --region us-east-1 \
-  --query 'Stacks[0].Outputs[?OutputKey==`WebACLArn`].OutputValue' \
-  --output text)
+if [ -n "$EXISTING_WAF_ARN" ] && [ "$EXISTING_WAF_ARN" != "None" ]; then
+  echo "  → WAF WebACL already exists, reusing: $EXISTING_WAF_ARN"
+  CLOUDFRONT_WAF_ARN="$EXISTING_WAF_ARN"
+else
+  aws cloudformation deploy \
+    --stack-name $CLOUDFRONT_WAF_STACK \
+    --template-file infrastructure/stacks/cloudfront-waf.yaml \
+    --profile $PROFILE \
+    --region us-east-1 \
+    --no-fail-on-empty-changeset
+
+  # Get WAF WebACL ARN
+  CLOUDFRONT_WAF_ARN=$(aws cloudformation describe-stacks \
+    --stack-name $CLOUDFRONT_WAF_STACK \
+    --profile $PROFILE \
+    --region us-east-1 \
+    --query 'Stacks[0].Outputs[?OutputKey==`WebACLArn`].OutputValue' \
+    --output text)
+fi
 
 echo "  ✓ CloudFront WAF ARN: $CLOUDFRONT_WAF_ARN"
 echo "✅ CloudFront WAF deployed!"
@@ -101,34 +110,51 @@ echo "📦 Step 3/6: Packaging and uploading Lambda functions..."
 package_and_upload() {
   local dir=$1
   local name=$2
-  
-  # Clean up any existing deployment.zip
-  rm -f "$dir/deployment.zip"
-  
-  if [ -f "$dir/requirements.txt" ] && [ -s "$dir/requirements.txt" ]; then
+  local pip_extra_flags=""
+
+  # The JWT cookie authorizer depends on the `cryptography` library, which
+  # ships native extensions. Installing on macOS produces a macOS binary and
+  # the Lambda fails to import with "invalid ELF header". Force Linux
+  # x86_64 + CPython 3.12 wheels (matches the Lambda runtime pinned in
+  # infrastructure/stacks/lambda.yaml).
+  if [ "$name" = "jwt-cookie-authorizer" ]; then
+    pip_extra_flags="--platform manylinux2014_x86_64 --python-version 3.12 --only-binary=:all: --implementation cp"
+  fi
+
+  # Clean any leftover artifacts up-front, and guarantee they're removed
+  # on exit (success or failure) so the source tree stays clean.
+  rm -rf "$dir/package" "$dir/deployment.zip"
+  trap "rm -rf '$dir/package' '$dir/deployment.zip'" RETURN
+
+  # A requirements.txt exists in every Lambda directory; skip the pip
+  # install step only when the file is empty or all-comments (no actual
+  # dependencies).
+  local has_deps=0
+  if [ -f "$dir/requirements.txt" ] && grep -q '^[[:space:]]*[^#[:space:]]' "$dir/requirements.txt" 2>/dev/null; then
+    has_deps=1
+  fi
+
+  if [ "$has_deps" = "1" ]; then
     echo "  → Packaging $name (with dependencies)"
-    (cd "$dir" && rm -rf package && \
-     $PIP_CMD install -r requirements.txt -t package --quiet && \
+    (cd "$dir" && \
+     $PIP_CMD install -r requirements.txt -t package --quiet $pip_extra_flags && \
      cp lambda_function.py package/ && \
-     cd package && zip -rq ../deployment.zip . && \
-     cd .. && rm -rf package)
+     cd package && zip -rq ../deployment.zip .)
   else
     echo "  → Packaging $name"
     (cd "$dir" && zip -q deployment.zip lambda_function.py)
   fi
-  
+
   aws s3 cp "$dir/deployment.zip" \
     "s3://$TEMPLATE_BUCKET/lambda-code/$LAMBDA_CODE_VERSION/$name.zip" \
     --profile $PROFILE \
     --region $REGION \
     --quiet
-  
-  # Clean up deployment.zip after upload
-  rm -f "$dir/deployment.zip"
 }
 
 package_and_upload "lambda-functions/populate-graph" "populate-graph"
 package_and_upload "lambda-functions/authenticate-user" "authenticate-user"
+package_and_upload "lambda-functions/jwt-cookie-authorizer" "jwt-cookie-authorizer"
 package_and_upload "lambda-functions/neptune-pipeline/request-quotas" "request-quotas"
 package_and_upload "lambda-functions/neptune-pipeline/check-quota-status" "check-quota-status"
 package_and_upload "lambda-functions/neptune-pipeline/start-neptune-export" "start-neptune-export"
@@ -351,17 +377,14 @@ echo "  Status:           Running (takes 1-2 hours)"
 echo "  Execution ARN:    $EXECUTION_ARN"
 echo ""
 echo "🧪 Test API (Requires Authentication):"
-echo "  # Get token"
-echo "  TOKEN=\$(aws cognito-idp admin-initiate-auth \\"
-echo "    --auth-flow ADMIN_USER_PASSWORD_AUTH \\"
-echo "    --client-id $USER_POOL_CLIENT_ID \\"
-echo "    --user-pool-id $USER_POOL_ID \\"
-echo "    --auth-parameters USERNAME=user@company.com,PASSWORD=SecurePassword123! \\"
-echo "    --region $REGION --profile $PROFILE \\"
-echo "    --query 'AuthenticationResult.IdToken' --output text)"
+echo "  # Log in (server sets an httpOnly cookie — save it to a jar)"
+echo "  curl -c cookies.txt -X POST \\"
+echo "    $API_ENDPOINT/auth/login \\"
+echo "    -H 'Content-Type: application/json' \\"
+echo "    -d '{\"username\":\"user@company.com\",\"password\":\"SecurePassword123!\"}'"
 echo ""
-echo "  # Call API"
-echo "  curl -H \"Authorization: Bearer \$TOKEN\" \\"
+echo "  # Call API (cookie jar automatically forwards the auth cookie)"
+echo "  curl -b cookies.txt \\"
 echo "    $API_ENDPOINT/analytics/fraud-trends"
 echo ""
 echo "📈 Monitor ML Pipeline:"
