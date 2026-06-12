@@ -358,6 +358,8 @@ Vea [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para documentación detallada d
 
 ## Modelo de Grafos
 
+![Modelo de Datos del Grafo](generated-diagrams/fraud_detection_graph.png)
+
 ### Vértices
 - **Claimant** - Titulares de pólizas de seguros
 - **Vehicle** - Vehículos asegurados (vin, make, year, plate, ownerId)
@@ -385,6 +387,12 @@ Vea [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para documentación detallada d
 - **claimed_injury** - Pasajero reclamó lesión en Reclamo
 - **has_fraud_score** - Entidad de dominio vinculada a su nodo objetivo fraudEntity de ML
 
+### Patrón de Entidad de Fraude
+
+El vértice `fraudEntity` es un nodo objetivo especial de ML. Cada entidad de dominio sospechosa (RepairShop, MedicalProvider, Witness, Attorney, TowCompany, Claim o Passenger) se vincula a un nodo `fraudEntity` a través de la arista `has_fraud_score`. Este nodo contiene la propiedad `fraudScore` que el modelo de regresión GNN de Neptune ML aprende a predecir — permitiendo la puntuación de fraude de nuevas entidades basada en su vecindario en el grafo.
+
+![Patrón de Entidad de Fraude](generated-diagrams/fraud_entity.png)
+
 ## Uso de la API
 
 Después del despliegue, use el endpoint de la API para detectar fraude:
@@ -409,6 +417,8 @@ curl $API_ENDPOINT/claimants/{claimant-id}/risk-score
 Vea [API_DOCUMENTATION.md](API_DOCUMENTATION.md) para todos los 44 endpoints con documentación detallada.
 
 ## Pipeline de Entrenamiento ML
+
+![Pipeline de Entrenamiento ML](generated-diagrams/pipeline.png)
 
 El script de despliegue inicia automáticamente el pipeline de entrenamiento ML, que toma 1-2 horas en completarse.
 

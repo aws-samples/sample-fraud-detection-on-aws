@@ -356,6 +356,8 @@ See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for detailed endpoint documenta
 
 ## Graph Model
 
+![Graph Data Model](generated-diagrams/fraud_detection_graph.png)
+
 ### Vertices
 - **Claimant** - Insurance policy holders
 - **Vehicle** - Insured vehicles (vin, make, year, plate, ownerId)
@@ -383,6 +385,12 @@ See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for detailed endpoint documenta
 - **claimed_injury** - Passenger claimed injury in Claim
 - **has_fraud_score** - Domain entity linked to its fraudEntity ML target node
 
+### Fraud Entity Pattern
+
+The `fraudEntity` vertex is a special ML target node. Each suspicious domain entity (RepairShop, MedicalProvider, Witness, Attorney, TowCompany, Claim, or Passenger) is linked to a `fraudEntity` node via the `has_fraud_score` edge. This node holds the `fraudScore` property that Neptune ML's GNN regression model learns to predict — enabling fraud scoring of new entities based on their graph neighborhood.
+
+![Fraud Entity Pattern](generated-diagrams/fraud_entity.png)
+
 ## API Usage
 
 After deployment, use the API endpoint to detect fraud:
@@ -407,6 +415,8 @@ curl $API_ENDPOINT/claimants/{claimant-id}/risk-score
 See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for all 44 endpoints with detailed documentation.
 
 ## ML Training Pipeline
+
+![ML Training Pipeline](generated-diagrams/pipeline.png)
 
 The deployment script automatically starts the ML training pipeline, which takes 1-2 hours to complete.
 
