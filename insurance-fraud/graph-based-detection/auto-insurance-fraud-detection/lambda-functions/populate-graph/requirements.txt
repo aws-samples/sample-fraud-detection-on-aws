@@ -1,5 +1,5 @@
-gremlinpython==3.8.0
-faker==40.5.1
+gremlinpython==3.8.1
+faker==40.28.0
 aiohttp==3.14.1
 typing_extensions==4.15.0
-aws-lambda-powertools==3.24.0
+aws-lambda-powertools==3.31.0
