@@ -48,6 +48,11 @@ components:
       in: path
       required: true
       schema: { type: string }
+    AccidentId:
+      name: accident_id
+      in: path
+      required: true
+      schema: { type: string }
 
 tags:
   - name: Authentication
@@ -183,6 +188,20 @@ paths:
       responses:
         '200': { description: Claim graph }
         '404': { description: Claim not found }
+
+  /accidents/{accident_id}/graph:
+    get:
+      tags: [Claims]
+      summary: Get accident full neighborhood graph
+      operationId: getAccidentGraph
+      parameters: [{ $ref: '#/components/parameters/AccidentId' }]
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri: ${FraudDetectionFunctionArn}
+      responses:
+        '200': { description: Accident graph }
+        '404': { description: Accident not found }
 
   /claimants:
     get:

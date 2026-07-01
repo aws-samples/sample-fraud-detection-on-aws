@@ -1,10 +1,11 @@
 // Graph visualization module using D3.js
 
 class GraphVisualizer {
-    constructor(containerId) {
+    constructor(containerId, options = {}) {
         this.container = d3.select(`#${containerId}`);
         this.width = Math.max(this.container.node().clientWidth || 1000, 800);
         this.height = Math.max(this.container.node().clientHeight || 700, 600);
+        this.hoverHighlight = options.hoverHighlight !== false;
         this.svg = null;
         this.simulation = null;
         this.filterId = `corrupt-glow-${containerId}`;
@@ -87,6 +88,21 @@ class GraphVisualizer {
 
         this.svg.call(zoom);
 
+        // Edge color by type
+        const edgeColorMap = {
+            'involved_vehicle': '#3b82f6',
+            'for_accident': '#f97316',
+            'filed_claim': '#ef4444',
+            'repaired_at': '#8b5cf6',
+            'treated_by': '#06b6d4',
+            'witnessed_by': '#84cc16',
+            'represented_by': '#ec4899',
+            'towed_by': '#6b7280',
+            'passenger_in': '#14b8a6',
+            'claimed_injury': '#f59e0b',
+            'owns': '#64748b',
+        };
+
         // Create force simulation
         this.simulation = d3.forceSimulation(data.nodes)
             .force('link', d3.forceLink(data.edges).id(d => d.id).distance(100))
@@ -98,29 +114,68 @@ class GraphVisualizer {
             .selectAll('line')
             .data(data.edges)
             .enter().append('line')
-            .attr('stroke', '#999')
+            .attr('stroke', d => edgeColorMap[d.type] || '#999')
             .attr('stroke-width', 2)
+            .attr('stroke-dasharray', d => d.role === 'victim' ? '5,3' : null)
             .attr('marker-end', 'url(#arrowhead)')
             .style('cursor', 'pointer')
             .on('click', (event, d) => this.showEdgePopup(event, d));
 
+        // Edge labels
+        const edgeLabel = g.append('g')
+            .selectAll('text')
+            .data(data.edges)
+            .enter().append('text')
+            .attr('font-size', 8)
+            .attr('fill', d => edgeColorMap[d.type] || '#666')
+            .attr('text-anchor', 'middle')
+            .attr('dy', -5)
+            .style('pointer-events', 'none')
+            .text(d => {
+                let label = (d.type || '').replace(/_/g, ' ');
+                if (d.role && d.role !== 'unknown') {
+                    const roleLabel = d.role === 'at-fault' ? 'squat' : d.role;
+                    label += ` (${roleLabel})`;
+                }
+                return label;
+            });
+
         const corruptTypes = new Set(['repairShop', 'witness', 'attorney', 'towCompany', 'medicalProvider', 'passenger']);
 
-        // Draw nodes
+        // Shape path generators by type
+        const getNodeShape = (d) => {
+            const r = d.size || 10;
+            switch (d.type) {
+                case 'vehicle': // square
+                    return `M${-r},${-r}L${r},${-r}L${r},${r}L${-r},${r}Z`;
+                case 'accident': // triangle
+                    return `M0,${-r}L${r},${r}L${-r},${r}Z`;
+                case 'claimant': // diamond
+                    return `M0,${-r}L${r},0L0,${r}L${-r},0Z`;
+                default: // circle approximation
+                    return d3.arc()({innerRadius: 0, outerRadius: r, startAngle: 0, endAngle: 2 * Math.PI}) || `M0,${-r}A${r},${r} 0 1,1 0,${r}A${r},${r} 0 1,1 0,${-r}Z`;
+            }
+        };
+
+        // Draw nodes as paths (shapes)
         const node = g.append('g')
-            .selectAll('circle')
+            .selectAll('path')
             .data(data.nodes)
-            .enter().append('circle')
-            .attr('r', d => d.size || 10)
+            .enter().append('path')
+            .attr('d', d => getNodeShape(d))
             .attr('fill', d => this.getFraudColor(d.fraudScore || 0))
             .attr('stroke', d => {
                 if (d.isMember) return '#2563eb';
+                if (d.role === 'squat' || d.role === 'at-fault') return '#ef4444';
+                if (d.role === 'victim') return '#f59e0b';
+                if (d.role === 'swoop') return '#8b5cf6';
                 const score = d.fraudScore || 0;
                 if (corruptTypes.has(d.type) && score >= 0.7) return '#ef4444';
                 return '#fff';
             })
             .attr('stroke-width', d => {
                 if (d.isMember) return 4;
+                if (d.role === 'squat' || d.role === 'at-fault' || d.role === 'victim' || d.role === 'swoop') return 3;
                 const score = d.fraudScore || 0;
                 if (corruptTypes.has(d.type) && score >= 0.7) return 3;
                 return 2;
@@ -135,6 +190,8 @@ class GraphVisualizer {
             .attr('filter', d => (corruptTypes.has(d.type) && (d.fraudScore || 0) >= 0.7) ? `url(#${this.filterId})` : null)
             .style('cursor', 'pointer')
             .on('click', (event, d) => this.showNodePopup(event, d))
+            .on('mouseenter', (event, d) => { if (this.hoverHighlight) this._highlightNeighbors(d, data, node, link, edgeLabel, labelBg, label); })
+            .on('mouseleave', () => { if (this.hoverHighlight) this._resetHighlight(node, link, edgeLabel, labelBg, label); })
             .call(d3.drag()
                 .on('start', (event, d) => this.dragStarted(event, d))
                 .on('drag', (event, d) => this.dragged(event, d))
@@ -145,7 +202,7 @@ class GraphVisualizer {
             .selectAll('text')
             .data(data.nodes)
             .enter().append('text')
-            .text(d => d.name ? `${d.label}: ${d.name}` : d.label || d.id)
+            .text(d => this._nodeLabel(d))
             .attr('font-size', 10)
             .attr('dx', 12)
             .attr('dy', 4)
@@ -160,7 +217,7 @@ class GraphVisualizer {
             .selectAll('text')
             .data(data.nodes)
             .enter().append('text')
-            .text(d => d.name ? `${d.label}: ${d.name}` : d.label || d.id)
+            .text(d => this._nodeLabel(d))
             .attr('font-size', 10)
             .attr('dx', 12)
             .attr('dy', 4)
@@ -168,15 +225,17 @@ class GraphVisualizer {
 
         // Update positions on tick
         this.simulation.on('tick', () => {
-            node
-                .attr('cx', d => d.x)
-                .attr('cy', d => d.y);
+            node.attr('transform', d => `translate(${d.x},${d.y})`);
 
             link
                 .attr('x1', d => d.source.x)
                 .attr('y1', d => d.source.y)
                 .attr('x2', d => d.target.x)
                 .attr('y2', d => d.target.y);
+
+            edgeLabel
+                .attr('x', d => (d.source.x + d.target.x) / 2)
+                .attr('y', d => (d.source.y + d.target.y) / 2);
 
             labelBg
                 .attr('x', d => d.x)
@@ -198,6 +257,43 @@ class GraphVisualizer {
             blur.attr('stdDeviation', sd);
             pulseUp = !pulseUp;
         }, 750);
+    }
+
+    _nodeLabel(d) {
+        const roleSuffix = d.role === 'squat' || d.role === 'at-fault' ? ' 🛑SQUAT' : d.role === 'victim' ? ' 🚗VICTIM' : d.role === 'swoop' ? ' 💨SWOOP' : '';
+        const name = d.name ? `${d.label}: ${d.name}` : d.label || d.id;
+        return name + roleSuffix;
+    }
+
+    _highlightNeighbors(d, data, nodeSelection, linkSelection, edgeLabelSelection, labelBgSelection, labelSelection) {
+        const connectedIds = new Set([d.id]);
+        data.edges.forEach(e => {
+            const sid = typeof e.source === 'object' ? e.source.id : e.source;
+            const tid = typeof e.target === 'object' ? e.target.id : e.target;
+            if (sid === d.id) connectedIds.add(tid);
+            if (tid === d.id) connectedIds.add(sid);
+        });
+        nodeSelection.style('opacity', n => connectedIds.has(n.id) ? 1 : 0.15);
+        linkSelection.style('opacity', e => {
+            const sid = typeof e.source === 'object' ? e.source.id : e.source;
+            const tid = typeof e.target === 'object' ? e.target.id : e.target;
+            return (sid === d.id || tid === d.id) ? 1 : 0.08;
+        });
+        edgeLabelSelection.style('opacity', e => {
+            const sid = typeof e.source === 'object' ? e.source.id : e.source;
+            const tid = typeof e.target === 'object' ? e.target.id : e.target;
+            return (sid === d.id || tid === d.id) ? 1 : 0.08;
+        });
+        labelBgSelection.style('opacity', n => connectedIds.has(n.id) ? 1 : 0.15);
+        labelSelection.style('opacity', n => connectedIds.has(n.id) ? 1 : 0.15);
+    }
+
+    _resetHighlight(nodeSelection, linkSelection, edgeLabelSelection, labelBgSelection, labelSelection) {
+        nodeSelection.style('opacity', 1);
+        linkSelection.style('opacity', 1);
+        edgeLabelSelection.style('opacity', 1);
+        labelBgSelection.style('opacity', 1);
+        labelSelection.style('opacity', 1);
     }
 
     formatPropertyValue(key, value) {
@@ -289,7 +385,57 @@ class GraphVisualizer {
             }
         });
 
+        // "Show more..." link for accident nodes
+        if (node.type === 'accident') {
+            popup.append('a')
+                .attr('href', '#')
+                .style('display', 'block')
+                .style('margin-top', '10px')
+                .style('color', '#2563eb')
+                .style('font-weight', '600')
+                .style('font-size', '13px')
+                .text('🔍 Show full accident graph…')
+                .on('click', (event) => {
+                    event.preventDefault();
+                    d3.selectAll('.graph-popup').remove();
+                    this._showAccidentModal(node.id);
+                });
+        }
+
         event.stopPropagation();
+    }
+
+    async _showAccidentModal(accidentId) {
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay active';
+        overlay.innerHTML = DOMPurify.sanitize(`
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h2 class="modal-title">Accident Detail</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-content" style="padding:16px;">
+                    <div id="accidentModalGraph" class="graph-container" style="min-height:500px;">
+                        <div class="dashboard-loading">Loading accident graph...</div>
+                    </div>
+                </div>
+            </div>
+        `);
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('.modal-close').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        try {
+            const data = await api.getAccidentGraph(accidentId);
+            overlay.querySelector('.dashboard-loading')?.remove();
+            const viz = new GraphVisualizer('accidentModalGraph', { hoverHighlight: false });
+            viz.renderGraph(data);
+        } catch (e) {
+            const container = overlay.querySelector('#accidentModalGraph');
+            if (container) container.innerHTML = DOMPurify.sanitize(`<div class="error">Error: ${e.message}</div>`);
+        }
     }
 
     showEdgePopup(event, edge) {

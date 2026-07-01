@@ -20,6 +20,12 @@ logger = Logger()
 tracer = Tracer()
 app = APIGatewayRestResolver()
 
+# Vehicle-to-accident edge labels (role-specific to avoid Neptune parallel edge dedup)
+VEHICLE_EDGES = ('has_victim', 'has_squat', 'has_swoop')
+
+# All staged accident maneuver types
+STAGED_MANEUVERS = ('swoop-squat', 'sudden-stop', 'wave-in', 't-bone', 'dual-turn-sideswipe', 'panic-stop', 'backing-up')
+
 # Connection cache for reuse within Lambda container
 _connection_cache = {'conn': None, 'g': None, 'expires': 0}
 
@@ -167,7 +173,7 @@ def _get_fraud_score(g, entity_id, default=0.0):
         logger.debug(f"Derived score failed for {entity_id}: {e}")
     # Derive from connected claims (for vehicles: vehicle ← involved_vehicle ← accident ← for_accident ← claim)
     try:
-        scores = g.V(entity_id).in_('involved_vehicle').in_('for_accident').out('has_fraud_score').values('fraudScore').fold().next()
+        scores = g.V(entity_id).in_(*VEHICLE_EDGES).in_('for_accident').out('has_fraud_score').values('fraudScore').fold().next()
         if scores:
             return _trunc(sum(float(s) for s in scores) / len(scores))
     except Exception as e:
@@ -286,13 +292,16 @@ def _build_claimant_graph(g, claimant_id):
                 add_edge(pid, claim_id, 'claimed_injury')
 
             # Vehicles + tow companies
-            for v in g.V(aid).in_('involved_vehicle').valueMap(True).toList():
+            for v in g.V(aid).in_(*VEHICLE_EDGES).valueMap(True).toList():
                 vid = str(v[T.id])
                 make = _prop(v, 'make', 'Unknown')
                 add_node(vid, make, 'vehicle', 6, _get_fraud_score(g, vid), name=_prop(v, 'make'))
                 add_edge(aid, vid, 'involved_vehicle')
 
-                for tc in g.V(vid).out('towed_by').valueMap(True).toList():
+            # Tow companies (from vehicles, filtered by this accident)
+            for v in g.V(aid).out(*VEHICLE_EDGES).toList():
+                vid = str(v.id)
+                for tc in g.V(vid).outE('towed_by').has('accidentId', aid).inV().valueMap(True).toList():
                     tcid = str(tc[T.id])
                     add_node(tcid, get_node_label('towCompany'), 'towCompany', 8, _get_fraud_score(g, tcid), name=_prop(tc, 'name'))
                     add_edge(vid, tcid, 'towed_by')
@@ -532,12 +541,95 @@ def get_claim_graph(claim_id: str):
             add_node(wid, get_node_label('witness'), 'witness', 8, _get_fraud_score(g, wid), name=_prop(w, 'name'))
             edges.append({'source': aid, 'target': wid, 'type': 'witnessed_by'})
 
-        for v in g.V(aid).in_('involved_vehicle').valueMap(True).toList():
+        for v in g.V(aid).in_(*VEHICLE_EDGES).valueMap(True).toList():
             vid = str(v[T.id])
             add_node(vid, _prop(v, 'make', 'Vehicle'), 'vehicle', 6, _get_fraud_score(g, vid))
             edges.append({'source': aid, 'target': vid, 'type': 'involved_vehicle'})
 
     return {'nodes': nodes, 'edges': edges}
+
+
+@app.get("/accidents/<accident_id>/graph")
+@tracer.capture_method
+def get_accident_graph(accident_id: str):
+    """Get an accident's full neighborhood: vehicles (with roles), claims, claimants, witnesses, passengers, tow companies."""
+    g, remoteConn = get_neptune_connection()
+
+    if not g.V(accident_id).hasNext():
+        return {'error': f'Accident {accident_id} not found'}, 404
+
+    nodes, edges, seen = [], [], set()
+
+    def add_node(nid, label, ntype, size, fraud_score=None, name=None, **extra):
+        if nid not in seen:
+            seen.add(nid)
+            node = {'id': nid, 'label': label, 'type': ntype, 'size': size}
+            if fraud_score is not None:
+                node['fraudScore'] = fraud_score
+            if name:
+                node['name'] = name
+            node.update(extra)
+            nodes.append(node)
+
+    try:
+        accident = g.V(accident_id).valueMap(True).next()
+        maneuver = _prop(accident, 'maneuverType', 'accident')
+        # Use maneuver-based score consistent with collision ring views
+        fraud_score = _get_fraud_score(g, accident_id)
+        if fraud_score == 0 and maneuver in STAGED_MANEUVERS:
+            fraud_score = 0.9 if maneuver == 'swoop-squat' else 0.8 if maneuver in ('wave-in', 't-bone') else 0.7
+        add_node(accident_id, get_node_label('accident'), 'accident', 12,
+                 fraud_score, maneuverType=maneuver,
+                 policeVerified=_prop(accident, 'policeVerified', True))
+
+        # Vehicles with roles (role derived from edge label: has_victim, has_squat, has_swoop)
+        for edge_label, role in [('has_victim', 'victim'), ('has_squat', 'squat'), ('has_swoop', 'swoop')]:
+            for v in g.V(accident_id).out(edge_label).valueMap(True).toList():
+                vid = str(v[T.id])
+                add_node(vid, _prop(v, 'make', 'Vehicle'), 'vehicle', 10, _get_fraud_score(g, vid), role=role)
+                edges.append({'source': accident_id, 'target': vid, 'type': 'involved_vehicle', 'role': role})
+
+        # Witnesses
+        for w in g.V(accident_id).out('witnessed_by').valueMap(True).toList():
+            wid = str(w[T.id])
+            add_node(wid, get_node_label('witness'), 'witness', 8, _get_fraud_score(g, wid), name=_prop(w, 'name'))
+            edges.append({'source': accident_id, 'target': wid, 'type': 'witnessed_by'})
+
+        # Passengers
+        for p in g.V(accident_id).in_('passenger_in').valueMap(True).toList():
+            pid = str(p[T.id])
+            add_node(pid, get_node_label('passenger'), 'passenger', 8, _get_fraud_score(g, pid), name=_prop(p, 'name'))
+            edges.append({'source': pid, 'target': accident_id, 'type': 'passenger_in'})
+
+        # Claims → claimants, repair shops, tow companies
+        for cl in g.V(accident_id).in_('for_accident').valueMap(True).toList():
+            cl_id = str(cl[T.id])
+            amount = _prop(cl, 'amount', 0)
+            add_node(cl_id, f"${amount:.0f}", 'claim', 8, _get_fraud_score(g, cl_id))
+            edges.append({'source': cl_id, 'target': accident_id, 'type': 'for_accident'})
+
+            for c in g.V(cl_id).in_('filed_claim').valueMap(True).toList():
+                cid = str(c[T.id])
+                add_node(cid, get_node_label('claimant'), 'claimant', 10, _get_fraud_score(g, cid), name=_prop(c, 'name'))
+                edges.append({'source': cid, 'target': cl_id, 'type': 'filed_claim'})
+
+            for s in g.V(cl_id).out('repaired_at').valueMap(True).toList():
+                sid = str(s[T.id])
+                add_node(sid, get_node_label('repairShop'), 'repairShop', 8, _get_fraud_score(g, sid), name=_prop(s, 'name'))
+                edges.append({'source': cl_id, 'target': sid, 'type': 'repaired_at'})
+
+        # Tow companies (from vehicles in this accident, excluding swoop)
+        for vid in [n['id'] for n in nodes if n['type'] == 'vehicle' and n.get('role') != 'swoop']:
+            for t in g.V(vid).outE('towed_by').has('accidentId', accident_id).inV().valueMap(True).toList():
+                tid = str(t[T.id])
+                add_node(tid, get_node_label('towCompany'), 'towCompany', 8, _get_fraud_score(g, tid), name=_prop(t, 'name'))
+                edges.append({'source': vid, 'target': tid, 'type': 'towed_by'})
+    except Exception as e:
+        logger.error(f"Error building accident graph for {accident_id}: {e}")
+        return {'error': f'Error fetching accident data: {str(e)}'}, 500
+
+    return {'nodes': nodes, 'edges': edges}
+
 
 @app.get("/claimants/<claimant_id>/claims")
 @tracer.capture_method
@@ -736,7 +828,7 @@ def detect_staged_accidents():
     # across their staged accidents.
     PIVOT_QUERIES = [
         ('shop',    ['filed_claim', 'repaired_at'],                     'repairShop', 14),
-        ('vehicle', ['filed_claim', 'for_accident', 'involved_vehicle'],'vehicle',    12),
+        ('vehicle', ['filed_claim', 'for_accident', *VEHICLE_EDGES],'vehicle',    12),
         ('witness', ['filed_claim', 'for_accident', 'witnessed_by'],    'witness',    10),
     ]
 
@@ -806,10 +898,10 @@ def detect_staged_accidents():
                                      .where(_is_staged_traversal())
                                      .select('cl', 'acc').by(T.id).limit(2).toList())
                     else:
-                        edge_to_pivot = 'involved_vehicle' if pivot_kind == 'vehicle' else 'witnessed_by'
+                        edge_to_pivot = VEHICLE_EDGES if pivot_kind == 'vehicle' else ('witnessed_by',)
                         ids_chain = (g.V(cid).out('filed_claim').as_('cl')
                                      .out('for_accident').as_('acc')
-                                     .where(__.out(edge_to_pivot).hasId(p_id))
+                                     .where(__.out(*edge_to_pivot).hasId(p_id))
                                      .where(_is_staged_traversal())
                                      .select('cl', 'acc').by(T.id).limit(2).toList())
                     if not ids_chain:
@@ -843,12 +935,12 @@ def detect_staged_accidents():
                 if pivot_kind == 'vehicle' and p_id in node_ids:
                     existing = next((n for n in nodes if n['id'] == p_id), None)
                     if existing and 'role' not in existing:
-                        role_vals = g.V().hasLabel('accident').outE('involved_vehicle').where(__.inV().hasId(p_id)).values('role').limit(1).toList()
-                        if role_vals:
-                            existing['role'] = role_vals[0]
+                        role_labels = g.V().hasLabel('accident').outE(*VEHICLE_EDGES).where(__.inV().hasId(p_id)).label().limit(1).toList()
+                        if role_labels:
+                            existing['role'] = role_labels[0].replace('has_', '')
                 pivot_edge = {
                     'shop': 'repaired_at',
-                    'vehicle': 'involved_vehicle',
+                    'vehicle': VEHICLE_EDGES,
                     'witness': 'witnessed_by',
                 }[pivot_kind]
                 for cid, pairs_list in by_claimant.items():
@@ -862,13 +954,13 @@ def detect_staged_accidents():
                         if pivot_kind == 'shop':
                             add_edge(cl_id, p_id, pivot_edge)
                         elif pivot_kind == 'vehicle':
-                            # Fetch role from the edge
-                            role_val = g.V(acc_node['id']).outE('involved_vehicle').where(__.inV().hasId(p_id)).values('role').fold().next()
-                            role = role_val[0] if role_val else 'unknown'
-                            edge_key = (acc_node['id'], p_id, pivot_edge)
+                            # Fetch role from edge label
+                            role_labels = g.V(acc_node['id']).outE(*VEHICLE_EDGES).where(__.inV().hasId(p_id)).label().fold().next()
+                            role = role_labels[0].replace('has_', '') if role_labels else 'unknown'
+                            edge_key = (acc_node['id'], p_id, 'involved_vehicle')
                             if edge_key not in edge_keys:
                                 edge_keys.add(edge_key)
-                                edges.append({'source': acc_node['id'], 'target': p_id, 'type': pivot_edge, 'role': role})
+                                edges.append({'source': acc_node['id'], 'target': p_id, 'type': 'involved_vehicle', 'role': role})
                         else:
                             add_edge(acc_node['id'], p_id, pivot_edge)
 
@@ -879,9 +971,10 @@ def detect_staged_accidents():
 @tracer.capture_method
 def detect_swoop_and_squat():
     """
-    Swoop & Squat: vehicles involved in 2+ staged rear-end accidents
-    (maneuverType in 'swoop-squat' or 'sudden-stop') — the hallmark of ring
-    "prop" vehicles reused across deliberate crashes. Returns the vehicle,
+    Staged Accidents: vehicles involved in 2+ staged accidents
+    (swoop-squat, sudden-stop, wave-in, t-bone, dual-turn-sideswipe,
+    panic-stop, backing-up) — the hallmark of ring "prop" vehicles
+    reused across deliberate crashes. Returns the vehicle,
     all its staged accidents, and the claims/claimants filed on each.
     """
     g, remoteConn = get_neptune_connection()
@@ -903,8 +996,8 @@ def detect_swoop_and_squat():
     suspect_vehicles = (
         g.V().hasLabel('vehicle')
         .where(
-            __.inE('involved_vehicle').outV()
-            .has('maneuverType', P.within('swoop-squat', 'sudden-stop'))
+            __.inE(*VEHICLE_EDGES).outV()
+            .has('maneuverType', P.within(*STAGED_MANEUVERS))
             .count().is_(P.gte(2))
         )
         .limit(20).valueMap(True).toList()
@@ -916,8 +1009,8 @@ def detect_swoop_and_squat():
         add_node(v_node)
 
         # All the staged-maneuver accidents this vehicle was involved in
-        accidents = (g.V(v_id).in_('involved_vehicle')
-                     .has('maneuverType', P.within('swoop-squat', 'sudden-stop'))
+        accidents = (g.V(v_id).in_(*VEHICLE_EDGES)
+                     .has('maneuverType', P.within(*STAGED_MANEUVERS))
                      .valueMap(True).toList())
 
         for a in accidents:
@@ -930,15 +1023,25 @@ def detect_swoop_and_squat():
                 'type': 'accident',
                 'maneuverType': maneuver,
                 'policeVerified': police_verified,
-                'fraudScore': 0.9 if maneuver == 'swoop-squat' else 0.7,
+                'fraudScore': 0.9 if maneuver == 'swoop-squat' else 0.8 if maneuver in ('wave-in', 't-bone') else 0.7,
                 'size': 10,
             })
-            add_edge(a_id, v_id, 'involved_vehicle')
-            # Enrich vehicle node with role (once)
-            if 'role' not in v_node:
-                role_val = g.V(a_id).outE('involved_vehicle').where(__.inV().hasId(v_id)).values('role').fold().next()
-                if role_val:
-                    v_node['role'] = role_val[0]
+
+            # Include ALL vehicles involved in this accident with their roles
+            for edge_label, role in [('has_victim', 'victim'), ('has_squat', 'squat'), ('has_swoop', 'swoop')]:
+                for av in g.V(a_id).out(edge_label).valueMap(True).toList():
+                    av_id = str(av.get(T.id))
+                    if av_id == v_id:
+                        if 'role' not in v_node:
+                            v_node['role'] = role
+                    else:
+                        ov_node = _cr_node(g, av, 'vehicle', name_key='make', size=12)
+                        ov_node['role'] = role
+                        add_node(ov_node)
+                    key = (a_id, av_id, 'involved_vehicle')
+                    if key not in edge_keys:
+                        edge_keys.add(key)
+                        edges.append({'source': a_id, 'target': av_id, 'type': 'involved_vehicle', 'role': role})
 
             # Claims + claimants on each staged accident
             for cl in g.V(a_id).in_('for_accident').limit(2).valueMap(True).toList():
@@ -1077,7 +1180,7 @@ def detect_paper_collisions():
     accidents = (
         g.V().hasLabel('accident').has('policeVerified', False)
         .where(__.out('witnessed_by').count().is_(P.lte(1)))
-        .where(__.out('involved_vehicle').count().is_(P.lte(1)))
+        .where(__.out(*VEHICLE_EDGES).count().is_(P.lte(1)))
         .limit(30).valueMap(True).toList()
     )
 
@@ -1099,7 +1202,7 @@ def detect_paper_collisions():
             add_node(_cr_node(g, wv, 'witness', size=7))
             add_edge(a_id, w_id, 'witnessed_by')
 
-        for vv in g.V(a_id).out('involved_vehicle').limit(2).valueMap(True).toList():
+        for vv in g.V(a_id).out(*VEHICLE_EDGES).limit(2).valueMap(True).toList():
             v_id = str(vv.get(T.id))
             add_node(_cr_node(g, vv, 'vehicle', name_key='make', size=7))
             add_edge(a_id, v_id, 'involved_vehicle')
@@ -1224,7 +1327,7 @@ def detect_corrupt_tow_companies():
             add_edge(v_id, tc_id, 'towed_by')
 
             # Accidents this vehicle was involved in
-            for av in g.V(v_id).in_('involved_vehicle').limit(2).valueMap(True).toList():
+            for av in g.V(v_id).in_(*VEHICLE_EDGES).limit(2).valueMap(True).toList():
                 a_id = str(av.get(T.id))
                 add_node({
                     'id': a_id,

@@ -122,6 +122,9 @@ class APIClient {
     async getGeographicHotspots()   { return this.request('/analytics/geographic-hotspots'); }
     async getClaimAmountAnomalies() { return this.request('/analytics/claim-amount-anomalies'); }
     async getTemporalPatterns()     { return this.request('/analytics/temporal-patterns'); }
+
+    // --- Accident detail ---
+    async getAccidentGraph(accidentId) { return this.request(`/accidents/${accidentId}/graph`); }
 }
 
 const api = new APIClient();

@@ -181,7 +181,8 @@ def lambda_handler(event, context):
         vehicles.append(vehicle_id)
     _batch_add_vertices(g, vehicle_vertices)
     _batch_add_edges(g, vehicle_edges)
-    logger.info(f"Created {len(vehicles)} vehicles")
+    actual_count = g.V().hasLabel('vehicle').count().next()
+    logger.info(f"Created {len(vehicles)} vehicles (Neptune confirms: {actual_count})")
 
     # --- Repair Shops (10% suspicious) — with geolocation ---
     repair_shops = []
@@ -329,7 +330,12 @@ def lambda_handler(event, context):
         if is_fraud:
             lat, lng, zip_code = _fraud_location()
             accident_type = random.choice(['rear-end', 'rear-end', 'side-impact'])
-            maneuver_type = random.choice(['swoop-squat', 'sudden-stop', 'normal'])
+            maneuver_type = random.choice([
+                'swoop-squat', 'sudden-stop',
+                'wave-in', 't-bone', 'dual-turn-sideswipe',
+                'panic-stop', 'backing-up',
+                'normal',
+            ])
             police_verified = random.random() < 0.3
             # Temporal burst: fraud claims cluster in time
             claim_ts = _fraud_burst_timestamp(random.choice(burst_bases))
@@ -373,9 +379,16 @@ def lambda_handler(event, context):
         g.V(claimant_id).addE('filed_claim').to(__.V(claim_id)).next()
         g.V(claim_id).addE('for_accident').to(__.V(accident_id)).next()
 
-        vehicle_id = random.choice(vehicles)
-        role = random.choice(['at-fault', 'victim'])
-        g.V(accident_id).addE('involved_vehicle').to(__.V(vehicle_id)).property('role', role).next()
+        # Vehicles: create edges with role-specific labels (Neptune deduplicates same-label parallel edges)
+        victim_v = random.choice(vehicles[400:800])
+        squat_v = random.choice(vehicles[200:400])
+        g.V(accident_id).addE('has_victim').to(__.V(victim_v)).next()
+        g.V(accident_id).addE('has_squat').to(__.V(squat_v)).next()
+        # Connect claimant to their (victim) vehicle
+        g.V(claim_id).addE('claimed_vehicle').to(__.V(victim_v)).next()
+        if maneuver_type == 'swoop-squat':
+            swoop_v = random.choice(vehicles[800:1000])
+            g.V(accident_id).addE('has_swoop').to(__.V(swoop_v)).next()
         g.V(claim_id).addE('repaired_at').to(__.V(repair_shop_id)).next()
         g.V(accident_id).addE('witnessed_by').to(__.V(witness_id)).next()
 
@@ -389,10 +402,11 @@ def lambda_handler(event, context):
             attorney_id = attorneys[random.randint(0, 2)] if is_fraud else random.choice(attorneys[3:])
             g.V(claimant_id).addE('represented_by').to(__.V(attorney_id)).next()
 
-        # Tow company (50% of claims)
-        if random.random() < 0.5:
-            tow_id = tow_companies[random.randint(0, 1)] if is_fraud else random.choice(tow_companies[2:])
-            g.V(vehicle_id).addE('towed_by').to(__.V(tow_id)).next()
+        # Tow company — squat and victim vehicles always get towed (not swoop)
+        tow_id = tow_companies[random.randint(0, 1)] if is_fraud else random.choice(tow_companies[2:])
+        g.V(victim_v).addE('towed_by').to(__.V(tow_id)).property('accidentId', accident_id).next()
+        tow_id2 = tow_companies[random.randint(0, 1)] if is_fraud else random.choice(tow_companies[2:])
+        g.V(squat_v).addE('towed_by').to(__.V(tow_id2)).property('accidentId', accident_id).next()
 
         # Stuffed passengers (40% of fraud claims)
         if is_fraud and random.random() < 0.4:
@@ -449,8 +463,13 @@ def lambda_handler(event, context):
             g.V(cl_id).addE('for_accident').to(__.V(acc_id)).next()
             # Use a policy-hopping vehicle
             v_id = random.choice(policy_hop_vehicles)
-            g.V(acc_id).addE('involved_vehicle').to(__.V(v_id)).property('role', 'victim').next()
+            squat_hv = random.choice(vehicles[200:400])
+            g.V(acc_id).addE('has_victim').to(__.V(v_id)).next()
+            g.V(acc_id).addE('has_squat').to(__.V(squat_hv)).next()
             g.V(cl_id).addE('repaired_at').to(__.V(random.choice(repair_shops[:5]))).next()
+            # Tow victim and squat
+            g.V(v_id).addE('towed_by').to(__.V(tow_companies[random.randint(0, 1)])).property('accidentId', acc_id).next()
+            g.V(squat_hv).addE('towed_by').to(__.V(tow_companies[random.randint(0, 1)])).property('accidentId', acc_id).next()
             claims_created += 1
     logger.info(f"Created high-velocity claims for {len(high_velocity_claimants)} claimants")
 
@@ -477,7 +496,7 @@ def lambda_handler(event, context):
                 min(fraud_score, 0.95))
             g.V(claimant_id).addE('filed_claim').to(__.V(cl_id)).next()
             g.V(cl_id).addE('for_accident').to(__.V(acc_id)).next()
-            g.V(acc_id).addE('involved_vehicle').to(__.V(random.choice(vehicles))).property('role', 'victim').next()
+            g.V(acc_id).addE('has_victim').to(__.V(random.choice(vehicles))).next()
             g.V(cl_id).addE('repaired_at').to(__.V(random.choice(repair_shops[:10]))).next()
             claims_created += 1
     logger.info(f"Created escalation claims for {len(escalation_claimants)} claimants")
@@ -515,9 +534,26 @@ def lambda_handler(event, context):
                     random.uniform(0.85, 0.98))
                 g.V(ring_claimant).addE('filed_claim').to(__.V(ring_claim_id)).next()
                 g.V(ring_claim_id).addE('for_accident').to(__.V(ring_accident_id)).next()
-                g.V(ring_accident_id).addE('involved_vehicle').to(__.V(ring_vehicle)).property('role', 'at-fault').next()
+                g.V(ring_accident_id).addE('has_squat').to(__.V(ring_vehicle)).next()
                 g.V(ring_accident_id).addE('witnessed_by').to(__.V(ring_witness)).next()
                 g.V(ring_claim_id).addE('repaired_at').to(__.V(ring_shop)).next()
+
+                # Add swoop vehicle (only for swoop-squat) and victim vehicle
+                if maneuver == 'swoop-squat':
+                    swoop_v = vehicles[800 + (ring_index * 20 + j * 2 + k) % 100]
+                    victim_v = vehicles[900 + (ring_index * 20 + j * 2 + k) % 100]
+                    g.V(ring_accident_id).addE('has_swoop').to(__.V(swoop_v)).next()
+                    g.V(ring_accident_id).addE('has_victim').to(__.V(victim_v)).next()
+                else:
+                    # All other staged types: just add victim vehicle
+                    victim_v = vehicles[1200 + (ring_index * 20 + j * 2 + k) % 100]
+                    g.V(ring_accident_id).addE('has_victim').to(__.V(victim_v)).next()
+
+                # Tow companies — squat and victim always get towed
+                tow_id = tow_companies[random.randint(0, 1)]
+                g.V(ring_vehicle).addE('towed_by').to(__.V(tow_id)).property('accidentId', ring_accident_id).next()
+                tow_id2 = tow_companies[random.randint(0, 1)]
+                g.V(victim_v).addE('towed_by').to(__.V(tow_id2)).property('accidentId', ring_accident_id).next()
 
                 # Cross-ring passenger in planted rings too
                 if random.random() < 0.4:
@@ -535,14 +571,14 @@ def lambda_handler(event, context):
     _plant_ring(1, claimants[200:205], [vehicles[0], vehicles[1]], [witnesses[0]],
                 repair_shops[0], attorneys[0], 'swoop-squat')
     _plant_ring(2, claimants[210:215], [vehicles[2]], [witnesses[1], witnesses[2]],
-                repair_shops[1], attorneys[1], 'sudden-stop')
+                repair_shops[1], attorneys[1], 'panic-stop')
     _plant_ring(3, claimants[220:225], [vehicles[3], vehicles[4]], [witnesses[3]],
-                repair_shops[2], attorneys[2], 'swoop-squat')
+                repair_shops[2], attorneys[2], 'wave-in')
     _plant_ring(4, claimants[230:235], [vehicles[5]], [witnesses[4], witnesses[5]],
-                repair_shops[3], attorneys[3], 'sudden-stop')
+                repair_shops[3], attorneys[3], 't-bone')
 
     # --- Vehicle-Pivot Staged Rings ---
-    # These rings share a SINGLE at-fault vehicle across all members' accidents,
+    # These rings share a SINGLE squat vehicle across all members' accidents,
     # creating the "prop car" pattern visible in the Staged Accidents page.
     # Ring 5: 4 claimants all "hit by" the same vehicle (vehicles[6])
     burst_base_5 = int(time.time()) - random.randint(14, 30) * 86400
@@ -564,12 +600,18 @@ def lambda_handler(event, context):
                 random.uniform(0.85, 0.97))
             g.V(cid).addE('filed_claim').to(__.V(cl_id)).next()
             g.V(cl_id).addE('for_accident').to(__.V(acc_id)).next()
-            # Same at-fault vehicle in every accident
-            g.V(acc_id).addE('involved_vehicle').to(__.V(vehicles[6])).property('role', 'at-fault').next()
+            # Same squat vehicle in every accident
+            g.V(acc_id).addE('has_squat').to(__.V(vehicles[6])).next()
+            # Swoop (accomplice) and victim vehicles
+            g.V(acc_id).addE('has_swoop').to(__.V(vehicles[1000 + j * 2 + k])).next()
+            g.V(acc_id).addE('has_victim').to(__.V(vehicles[1050 + j * 2 + k])).next()
             g.V(cl_id).addE('repaired_at').to(__.V(repair_shops[4])).next()
+            # Tow squat and victim
+            g.V(vehicles[6]).addE('towed_by').to(__.V(tow_companies[0])).property('accidentId', acc_id).next()
+            g.V(vehicles[1050 + j * 2 + k]).addE('towed_by').to(__.V(tow_companies[1])).property('accidentId', acc_id).next()
             claims_created += 1
         g.V(cid).addE('represented_by').to(__.V(attorneys[4])).next()
-    logger.info("Planted ring 5: 4 claimants × 2 claims, shared at-fault vehicle")
+    logger.info("Planted ring 5: 4 claimants × 2 claims, shared squat vehicle")
 
     # Ring 6: 4 claimants all claim their vehicle (vehicles[7]) was the victim
     burst_base_6 = int(time.time()) - random.randint(14, 30) * 86400
@@ -592,8 +634,13 @@ def lambda_handler(event, context):
             g.V(cid).addE('filed_claim').to(__.V(cl_id)).next()
             g.V(cl_id).addE('for_accident').to(__.V(acc_id)).next()
             # Same victim vehicle in every accident
-            g.V(acc_id).addE('involved_vehicle').to(__.V(vehicles[7])).property('role', 'victim').next()
+            g.V(acc_id).addE('has_victim').to(__.V(vehicles[7])).next()
+            # At-fault (squat) vehicle that caused the sudden stop
+            g.V(acc_id).addE('has_squat').to(__.V(vehicles[1100 + j * 2 + k])).next()
             g.V(cl_id).addE('repaired_at').to(__.V(repair_shops[5])).next()
+            # Tow victim and squat
+            g.V(vehicles[7]).addE('towed_by').to(__.V(tow_companies[0])).property('accidentId', acc_id).next()
+            g.V(vehicles[1100 + j * 2 + k]).addE('towed_by').to(__.V(tow_companies[1])).property('accidentId', acc_id).next()
             claims_created += 1
         g.V(cid).addE('represented_by').to(__.V(attorneys[5])).next()
     logger.info("Planted ring 6: 4 claimants × 2 claims, shared victim vehicle")

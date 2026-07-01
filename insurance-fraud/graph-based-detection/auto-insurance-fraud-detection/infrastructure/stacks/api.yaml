@@ -159,6 +159,27 @@ Resources:
       ParentId: !Ref ClaimIdResource
       PathPart: 'graph'
 
+  AccidentsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ParentId: !GetAtt AutoInsuranceAPI.RootResourceId
+      PathPart: 'accidents'
+
+  AccidentIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ParentId: !Ref AccidentsResource
+      PathPart: '{accident_id}'
+
+  AccidentGraphResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ParentId: !Ref AccidentIdResource
+      PathPart: 'graph'
+
   ClaimantsListResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -558,6 +579,18 @@ Resources:
     Properties:
       RestApiId: !Ref AutoInsuranceAPI
       ResourceId: !Ref ClaimGraphResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FraudDetectionFunctionArn}/invocations'
+  AccidentGraphGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AutoInsuranceAPI
+      ResourceId: !Ref AccidentGraphResource
       HttpMethod: GET
       AuthorizationType: CUSTOM
       AuthorizerId: !Ref CognitoAuthorizer

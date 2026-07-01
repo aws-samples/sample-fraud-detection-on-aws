@@ -82,6 +82,110 @@ class App {
                 this.loadView(view);
             });
         });
+
+        // Load welcome dashboard
+        this.loadWelcomeDashboard();
+    }
+
+    async loadWelcomeDashboard() {
+        const container = document.getElementById('viewContainer');
+        const welcome = container.querySelector('.welcome-message');
+        if (!welcome || welcome.querySelector('.dashboard-grid')) return;
+
+        const skeletonPlaceholder = '<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>';
+        const grid = document.createElement('div');
+        grid.className = 'dashboard-grid';
+        grid.innerHTML = DOMPurify.sanitize(`
+            <div class="dashboard-card" id="dashKpis" data-nav="fraud-trends"><h3 data-i18n="dashFraudOverview">${i18n.t('dashFraudOverview')}</h3>${skeletonPlaceholder}</div>
+            <div class="dashboard-card" id="dashGeo" data-nav="geographic-hotspots"><h3 data-i18n="dashGeographic">${i18n.t('dashGeographic')}</h3>${skeletonPlaceholder}</div>
+            <div class="dashboard-card" id="dashTemporal" data-nav="temporal-patterns"><h3 data-i18n="dashTemporal">${i18n.t('dashTemporal')}</h3>${skeletonPlaceholder}</div>
+            <div class="dashboard-card" id="dashRings" data-nav="organized-rings"><h3 data-i18n="dashTopRings">${i18n.t('dashTopRings')}</h3>${skeletonPlaceholder}</div>
+        `);
+        welcome.appendChild(grid);
+
+        // Click-through navigation
+        grid.querySelectorAll('[data-nav]').forEach(card => {
+            card.addEventListener('click', () => this.loadView(card.dataset.nav));
+        });
+
+        // Load all four panels in parallel
+        this._loadKpiPanel();
+        this._loadGeoPanel();
+        this._loadTemporalPanel();
+        this._loadRingsPanel();
+    }
+
+    async _loadKpiPanel() {
+        const el = document.querySelector('#dashKpis');
+        if (!el) return;
+        try {
+            const data = await api.getFraudTrends();
+            const fraudRate = ((data.fraudRate || 0) * 100).toFixed(1);
+            el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashFraudOverview">${i18n.t('dashFraudOverview')}</h3>
+                <div class="dashboard-kpis">
+                    <div class="dashboard-kpi"><div class="kpi-value">${data.totalClaims || 0}</div><div class="kpi-label" data-i18n="dashTotalClaims">${i18n.t('dashTotalClaims')}</div></div>
+                    <div class="dashboard-kpi"><div class="kpi-value">${fraudRate}%</div><div class="kpi-label" data-i18n="dashFraudRate">${i18n.t('dashFraudRate')}</div></div>
+                    <div class="dashboard-kpi"><div class="kpi-value" style="color:#dc2626">$${(data.estimatedFraudExposure || 0).toLocaleString()}</div><div class="kpi-label" data-i18n="dashExposure">${i18n.t('dashExposure')}</div></div>
+                    <div class="dashboard-kpi"><div class="kpi-value">$${(data.avgClaimAmount || 0).toLocaleString()}</div><div class="kpi-label" data-i18n="dashAvgClaim">${i18n.t('dashAvgClaim')}</div></div>
+                </div>`);
+        } catch (e) { el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashFraudOverview">${i18n.t('dashFraudOverview')}</h3><div class="dashboard-loading">${e.message}</div>`); }
+    }
+
+    async _loadGeoPanel() {
+        const el = document.querySelector('#dashGeo');
+        if (!el) return;
+        try {
+            const data = await api.getGeographicHotspots();
+            const zones = (data.zones || []).filter(z => z.fraudDensity > 0).slice(0, 8);
+            if (!zones.length) { el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashGeographic">${i18n.t('dashGeographic')}</h3><div class="dashboard-loading" data-i18n="dashNoZones">${i18n.t('dashNoZones')}</div>`); return; }
+            const maxDensity = Math.max(...zones.map(z => z.fraudDensity));
+            el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashGeographic">${i18n.t('dashGeographic')}</h3>
+                <div class="dashboard-heatmap">
+                    ${zones.map(z => {
+                        const pct = z.fraudDensity / maxDensity;
+                        const r = Math.round(220 + (239 - 220) * pct);
+                        const g = Math.round(240 - 180 * pct);
+                        const b = Math.round(247 - 200 * pct);
+                        return `<div class="heatmap-cell" style="background:rgb(${r},${g},${b})"><div class="heatmap-zip">${z.zipCode || z.zone}</div>${((z.fraudDensity || 0) * 100).toFixed(0)}%</div>`;
+                    }).join('')}
+                </div>`);
+        } catch (e) { el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashGeographic">${i18n.t('dashGeographic')}</h3><div class="dashboard-loading">${e.message}</div>`); }
+    }
+
+    async _loadTemporalPanel() {
+        const el = document.querySelector('#dashTemporal');
+        if (!el) return;
+        try {
+            const data = await api.getTemporalPatterns();
+            const filers = (data.rapidFilers || []).slice(0, 5);
+            if (!filers.length) { el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashTemporal">${i18n.t('dashTemporal')}</h3><div class="dashboard-loading">—</div>`); return; }
+            const max = Math.max(...filers.map(f => f.claimCount));
+            el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashTemporal">${i18n.t('dashTemporal')}</h3>
+                <div class="dashboard-bar-chart">
+                    ${filers.map(f => `<div class="bar-row">
+                        <span class="bar-label">${(f.name || f.claimantId || '').slice(0, 10)}</span>
+                        <div class="bar-track"><div class="bar-fill" style="width:${(f.claimCount / max * 100).toFixed(0)}%"></div></div>
+                        <span class="bar-value">${f.claimCount}</span>
+                    </div>`).join('')}
+                </div>`);
+        } catch (e) { el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashTemporal">${i18n.t('dashTemporal')}</h3><div class="dashboard-loading">${e.message}</div>`); }
+    }
+
+    async _loadRingsPanel() {
+        const el = document.querySelector('#dashRings');
+        if (!el) return;
+        try {
+            const data = await api.getOrganizedRings();
+            const rings = (data.rings || []).slice(0, 5);
+            if (!rings.length) { el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashTopRings">${i18n.t('dashTopRings')}</h3><div class="dashboard-loading" data-i18n="dashNoRings">${i18n.t('dashNoRings')}</div>`); return; }
+            el.innerHTML = DOMPurify.sanitize(`<h3 data-i18n="dashTopRings">${i18n.t('dashTopRings')}</h3>
+                <table class="dashboard-rings-table">
+                    <thead><tr><th>#</th><th data-i18n="dashMembers">${i18n.t('dashMembers')}</th><th data-i18n="dashRisk">${i18n.t('dashRisk')}</th></tr></thead>
+                    <tbody>
+                        ${rings.map((r, i) => `<tr><td>${i + 1}</td><td>${r.members?.length || 0}</td><td><span class="risk-badge risk-${(r.riskLevel || 'low').toLowerCase()}">${r.riskLevel || '—'}</span></td></tr>`).join('')}
+                    </tbody>
+                </table>`);
+        } catch (e) { el.querySelector('.dashboard-loading').textContent = e.message; }
     }
 
     async loadView(viewName) {

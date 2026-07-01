@@ -162,6 +162,21 @@ const translations = {
         crSubCorruptTowWorks: 'How it works: Tow operators first on the scene steer damaged vehicles toward fraud-affiliated body shops in exchange for kickbacks. The shop then inflates repair estimates or performs phantom repairs, splitting the fraud proceeds with the tow company that delivered the vehicle.',
         crSubCorruptTowHow: 'How it appears on the graph: TowCompany nodes linked from Vehicles via the towed_by edge. A TowCompany with a high fraud score repeatedly moving crash vehicles toward the same suspicious repair shops indicates steering into the fraud ring.',
 
+        // Welcome dashboard
+        dashFraudOverview: 'Fraud Overview',
+        dashTotalClaims: 'Total Claims',
+        dashFraudRate: 'Anomaly Rate',
+        dashExposure: 'Est. Exposure',
+        dashAvgClaim: 'Avg Claim',
+        dashGeographic: 'Geographic Hotspots',
+        dashNoZones: 'No hotspot data available',
+        dashTemporal: 'Top Rapid Filers',
+        dashTopRings: 'Top Fraud Rings',
+        dashNoRings: 'No fraud rings detected',
+        dashMembers: 'Members',
+        dashRisk: 'Risk',
+        dashLoading: 'Loading...',
+
         openSourceNote: 'This is an open-source sample. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection/auto-insurance-fraud-detection" target="_blank" rel="noopener">Download it on GitHub</a>.'
     },
     es: {
@@ -327,6 +342,21 @@ const translations = {
         crSubCorruptTowWorks: 'Cómo funciona: los operadores de grúa que llegan primero a la escena dirigen los vehículos dañados hacia talleres afiliados al fraude a cambio de comisiones. El taller luego infla las estimaciones de reparación o realiza reparaciones fantasma, compartiendo las ganancias del fraude con la empresa de grúa que entregó el vehículo.',
         crSubCorruptTowHow: 'Cómo aparece en el grafo: nodos TowCompany conectados desde Vehicle por la arista towed_by. Una TowCompany con un fraudScore alto que repetidamente lleva vehículos accidentados a los mismos talleres sospechosos indica direccionamiento hacia el anillo de fraude.',
 
+        // Welcome dashboard
+        dashFraudOverview: 'Resumen de Fraude',
+        dashTotalClaims: 'Total de Reclamos',
+        dashFraudRate: 'Tasa de Anomalías',
+        dashExposure: 'Exposición Est.',
+        dashAvgClaim: 'Reclamo Prom.',
+        dashGeographic: 'Zonas Geográficas',
+        dashNoZones: 'No hay datos de zonas disponibles',
+        dashTemporal: 'Top Reclamantes Rápidos',
+        dashTopRings: 'Principales Anillos de Fraude',
+        dashNoRings: 'No se detectaron anillos de fraude',
+        dashMembers: 'Miembros',
+        dashRisk: 'Riesgo',
+        dashLoading: 'Cargando...',
+
         openSourceNote: 'Este es un ejemplo de código abierto. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection/auto-insurance-fraud-detection" target="_blank" rel="noopener">Descárgalo en GitHub</a>.'
     },
     pt: {
@@ -491,6 +521,21 @@ const translations = {
         crSubCorruptTow: 'Empresas de reboque corruptas',
         crSubCorruptTowWorks: 'Como funciona: reboques primeiros na cena direcionam veículos danificados para oficinas afiliadas ao esquema em troca de comissões. A oficina então infla estimativas de reparo ou faz reparos fantasmas, dividindo os ganhos da fraude com a empresa de reboque que entregou o veículo.',
         crSubCorruptTowHow: 'Como aparece no grafo: nós TowCompany ligados a partir de Vehicle pela aresta towed_by. Uma TowCompany com fraudScore alto que repetidamente leva veículos acidentados para as mesmas oficinas suspeitas indica direcionamento para o anel de fraude.',
+
+        // Welcome dashboard
+        dashFraudOverview: 'Visão Geral de Fraude',
+        dashTotalClaims: 'Total de Sinistros',
+        dashFraudRate: 'Taxa de Anomalias',
+        dashExposure: 'Exposição Est.',
+        dashAvgClaim: 'Sinistro Médio',
+        dashGeographic: 'Zonas Geográficas',
+        dashNoZones: 'Nenhum dado de zona disponível',
+        dashTemporal: 'Top Reclamantes Rápidos',
+        dashTopRings: 'Principais Anéis de Fraude',
+        dashNoRings: 'Nenhum anel de fraude detectado',
+        dashMembers: 'Membros',
+        dashRisk: 'Risco',
+        dashLoading: 'Carregando...',
 
         openSourceNote: 'Este é um exemplo de código aberto. <a href="https://github.com/aws-samples/sample-fraud-detection-on-aws/tree/main/insurance-fraud/graph-based-detection/auto-insurance-fraud-detection" target="_blank" rel="noopener">Baixe no GitHub</a>.'
     }
