@@ -45,7 +45,16 @@ def refresh():
         )
         token = response['AuthenticationResult']['IdToken']
         expires_in = response['AuthenticationResult']['ExpiresIn']
-        return {'token': token, 'expiresIn': expires_in}
+
+        return Response(
+            status_code=200,
+            content_type='application/json',
+            body=json.dumps({'token': token, 'expiresIn': expires_in}),
+            headers={
+                'Set-Cookie': f'__Host-fraud_detection_token={token}; HttpOnly; Secure; SameSite=None; Max-Age={expires_in}; Path=/',
+                'Access-Control-Expose-Headers': 'Set-Cookie'
+            }
+        )
     except ClientError:
         return {'error': 'Refresh failed'}, 401
 

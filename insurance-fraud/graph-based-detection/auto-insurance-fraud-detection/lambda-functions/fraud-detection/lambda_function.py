@@ -292,7 +292,7 @@ def _build_claimant_graph(g, claimant_id):
                 add_edge(pid, claim_id, 'claimed_injury')
 
             # Vehicles + tow companies
-            for v in g.V(aid).in_(*VEHICLE_EDGES).valueMap(True).toList():
+            for v in g.V(aid).out(*VEHICLE_EDGES).valueMap(True).toList():
                 vid = str(v[T.id])
                 make = _prop(v, 'make', 'Unknown')
                 add_node(vid, make, 'vehicle', 6, _get_fraud_score(g, vid), name=_prop(v, 'make'))
@@ -541,7 +541,7 @@ def get_claim_graph(claim_id: str):
             add_node(wid, get_node_label('witness'), 'witness', 8, _get_fraud_score(g, wid), name=_prop(w, 'name'))
             edges.append({'source': aid, 'target': wid, 'type': 'witnessed_by'})
 
-        for v in g.V(aid).in_(*VEHICLE_EDGES).valueMap(True).toList():
+        for v in g.V(aid).out(*VEHICLE_EDGES).valueMap(True).toList():
             vid = str(v[T.id])
             add_node(vid, _prop(v, 'make', 'Vehicle'), 'vehicle', 6, _get_fraud_score(g, vid))
             edges.append({'source': aid, 'target': vid, 'type': 'involved_vehicle'})
